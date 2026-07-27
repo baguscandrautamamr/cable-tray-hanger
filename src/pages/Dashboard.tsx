@@ -1,0 +1,72 @@
+import { Plus } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
+import type { Session } from "@supabase/supabase-js";
+import type { HangerConfig } from "../types";
+import { supabase } from "../services/supabaseClient";
+import HistoryTable from "../components/HistoryTable";
+import AuthSection from "../components/AuthSection";
+
+interface DashboardProps {
+  session: Session | null;
+}
+
+export default function Dashboard({ session }: DashboardProps) {
+  const [configs, setConfigs] = useState<HangerConfig[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!session) {
+      setConfigs([]);
+      return;
+    }
+
+    let cancelled = false;
+    setLoading(true);
+
+    supabase
+      .from("hanger_configs")
+      .select("*")
+      .order("created_at", { ascending: false })
+      .limit(20)
+      .then(({ data, error }) => {
+        if (cancelled) return;
+        if (!error && data) setConfigs(data as HangerConfig[]);
+        setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [session]);
+
+  return (
+    <div className="mx-auto flex max-w-4xl flex-col gap-6 p-6">
+      <header className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold text-slate-100">Cable Tray Hanger</h1>
+          <p className="text-sm text-slate-500">Recent hanger configurations</p>
+        </div>
+        <Link
+          to="/config"
+          className="inline-flex items-center gap-1.5 rounded-md bg-amber-500 px-4 py-2 text-sm font-medium text-slate-950 hover:bg-amber-400"
+        >
+          <Plus size={18} />
+          New Config
+        </Link>
+      </header>
+
+      <AuthSection session={session} />
+
+      {session ? (
+        loading ? (
+          <p className="text-sm text-slate-500">Loading...</p>
+        ) : (
+          <HistoryTable configs={configs} />
+        )
+      ) : (
+        <p className="text-sm text-slate-500">Login to view your configuration history.</p>
+      )}
+    </div>
+  );
+}
