@@ -14,24 +14,41 @@ namespace CableTrayHanger.Addin.Services;
 /// </summary>
 internal static class ParameterUnits
 {
-    /// <summary>True when Revit stores this parameter as a length in internal units.</summary>
-    private static bool IsLength(Parameter parameter)
+    /// <summary>
+    /// True when Revit stores this parameter in internal units rather than as
+    /// the number you see.
+    ///
+    /// Decided by asking for the parameter's unit and seeing whether Revit
+    /// refuses — a behaviour, not a comparison. Two earlier attempts compared
+    /// the parameter's spec against SpecTypeId.Length instead, and both
+    /// answered "not a length" for every parameter in the model: SpecTypeId
+    /// hands back a fresh ForgeTypeId on each read, so identity comparison
+    /// fails, and the string form is not guaranteed to match either. A Length
+    /// then looked unitless, 600mm went in raw, and Revit read it as 600 feet
+    /// — a hanger 182.88m wide.
+    ///
+    /// There is no second oracle for this. Whether a stored double means feet
+    /// or means itself is something only the API can say, which is why the
+    /// question is put to it directly.
+    /// </summary>
+    private static bool IsMeasurable(Parameter parameter)
     {
         try
         {
-            return SpecTypeId.Length.Equals(parameter.Definition.GetDataType());
+            // Throws for a unitless parameter; returns its display unit
+            // otherwise. The unit itself does not matter — internal units are
+            // feet regardless of what the project displays.
+            return parameter.GetUnitTypeId() is not null;
         }
         catch (Autodesk.Revit.Exceptions.ApplicationException)
         {
-            // Some built-in definitions refuse GetDataType. Treating it as a
-            // plain number leaves the value untouched, which is the safer miss.
             return false;
         }
     }
 
     /// <summary>
-    /// Writes a millimetre value, converting only if the parameter is a length.
-    /// Returns false when there is nothing writable to set.
+    /// Writes a millimetre value, converting only if the parameter is stored in
+    /// internal units. Returns false when there is nothing writable to set.
     /// </summary>
     public static bool TrySetMillimetres(Parameter? parameter, double millimetres)
     {
@@ -40,7 +57,7 @@ internal static class ParameterUnits
             return false;
         }
 
-        var value = IsLength(parameter)
+        var value = IsMeasurable(parameter)
             ? UnitUtils.ConvertToInternalUnits(millimetres, UnitTypeId.Millimeters)
             : millimetres;
 
@@ -57,7 +74,7 @@ internal static class ParameterUnits
 
         var raw = parameter.AsDouble();
 
-        return IsLength(parameter)
+        return IsMeasurable(parameter)
             ? UnitUtils.ConvertFromInternalUnits(raw, UnitTypeId.Millimeters)
             : raw;
     }

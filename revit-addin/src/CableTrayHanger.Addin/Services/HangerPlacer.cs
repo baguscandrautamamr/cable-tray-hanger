@@ -51,6 +51,10 @@ internal static class HangerPlacer
         var placed = 0;
         var failures = new List<string>();
 
+        // Recorded once per tray, not once per hanger: a parameter that lands
+        // wrong lands wrong for all fifteen of them.
+        string? dimensionProblem = null;
+
         foreach (var position in tray.PlacementPositions)
         {
             var offsetFt = UnitUtils.ConvertToInternalUnits(position.PosM, UnitTypeId.Meters);
@@ -72,8 +76,16 @@ internal static class HangerPlacer
                     continue;
                 }
 
-                ApplyDimensions(instance, tray.TrayWidthMm, hangerHeightMm, settings);
+                var firstOnThisTray = placed == 0;
+
+                dimensionProblem ??= ApplyDimensions(instance, tray.TrayWidthMm, hangerHeightMm, settings);
+                AlignToRun(document, instance, curve, normalized, point);
                 placed++;
+
+                if (firstOnThisTray)
+                {
+                    dimensionProblem ??= CheckPlausibleSize(document, instance, tray.CableTrayName);
+                }
             }
             catch (Autodesk.Revit.Exceptions.ApplicationException ex)
             {
@@ -83,7 +95,60 @@ internal static class HangerPlacer
             }
         }
 
+        if (dimensionProblem is not null)
+        {
+            failures.Add(dimensionProblem);
+        }
+
         return new PlacementOutcome(placed, failures);
+    }
+
+    /// <summary>
+    /// Turns a hanger to face along the run it sits on.
+    ///
+    /// NewFamilyInstance places every instance at the family's own orientation,
+    /// so without this a run heading east and a run heading north get hangers
+    /// pointing the same way, and only one of them straddles its tray. The tray
+    /// direction was known all along — it just never reached the model.
+    ///
+    /// Rotation is about the vertical through the insertion point, by the
+    /// heading of the curve's tangent there, so it follows a curved run too.
+    /// A failure to rotate leaves a correctly placed hanger badly turned, which
+    /// is worth reporting nowhere and undoing nothing.
+    /// </summary>
+    private static void AlignToRun(
+        Document document,
+        FamilyInstance instance,
+        Curve curve,
+        double normalized,
+        XYZ point)
+    {
+        var tangent = curve.ComputeDerivatives(normalized, true).BasisX;
+        var heading = new XYZ(tangent.X, tangent.Y, 0);
+
+        // A perfectly vertical run has no heading to align to.
+        if (heading.IsZeroLength())
+        {
+            return;
+        }
+
+        var angle = XYZ.BasisX.AngleOnPlaneTo(heading.Normalize(), XYZ.BasisZ);
+
+        if (Math.Abs(angle) < 1e-9)
+        {
+            return;
+        }
+
+        try
+        {
+            var axis = Line.CreateBound(point, point + XYZ.BasisZ);
+            ElementTransformUtils.RotateElement(document, instance.Id, axis, angle);
+        }
+        catch (Autodesk.Revit.Exceptions.ApplicationException)
+        {
+            // Some families pin or constrain their rotation. The hanger is
+            // already placed and sized; leave it be.
+        }
     }
 
     /// <summary>
@@ -92,22 +157,124 @@ internal static class HangerPlacer
     /// silently — every office names these differently, which is why both names
     /// are settings rather than constants.
     /// </summary>
-    private static void ApplyDimensions(
+    /// <summary>
+    /// No cable tray hanger is this wide. Anything past it is not a hanger that
+    /// needs a second look, it is a unit that went in wrong.
+    /// </summary>
+    private const double ImplausibleSpanMetres = 10.0;
+
+    /// <summary>
+    /// Measures the hanger that was just built and complains if it came out
+    /// absurd.
+    ///
+    /// This is the check that would have caught TRAY_W landing at 182,880mm,
+    /// and reading the parameter back would not have: reading uses the same
+    /// units assumption as writing, so when that assumption is wrong both
+    /// sides are wrong together and agree perfectly. A bounding box owes
+    /// nothing to the assumption — it is the geometry Revit actually built.
+    /// </summary>
+    private static string? CheckPlausibleSize(Document document, FamilyInstance instance, string trayName)
+    {
+        try
+        {
+            // The instance was built from the old parameter values; without
+            // this its box still describes the shape before they were set.
+            document.Regenerate();
+
+            if (instance.get_BoundingBox(null) is not { } box)
+            {
+                return null;
+            }
+
+            var spanFt = Math.Max(box.Max.X - box.Min.X, box.Max.Y - box.Min.Y);
+            var spanM = UnitUtils.ConvertFromInternalUnits(spanFt, UnitTypeId.Meters);
+
+            if (spanM <= ImplausibleSpanMetres)
+            {
+                return null;
+            }
+
+            return $"On {trayName} the hanger came out {spanM:0.#}m across, which is not a hanger. "
+                   + "A dimension went into the family in the wrong units — check the Tray width "
+                   + "and Hanger height parameter names in Settings against the family.";
+        }
+        catch (Autodesk.Revit.Exceptions.ApplicationException)
+        {
+            // No geometry to measure. Not a reason to fail the placement.
+            return null;
+        }
+    }
+
+    /// <summary>Returns a description of anything that did not land, or null.</summary>
+    private static string? ApplyDimensions(
         FamilyInstance instance,
         double trayWidthMm,
         double? hangerHeightMm,
         AddinSettings settings)
     {
-        if (trayWidthMm > 0 && !string.IsNullOrWhiteSpace(settings.TrayWidthParameter))
+        var problems = new List<string>();
+
+        if (trayWidthMm > 0)
         {
-            ParameterUnits.TrySetMillimetres(
-                instance.LookupParameter(settings.TrayWidthParameter), trayWidthMm);
+            Verify(instance, settings.TrayWidthParameter, trayWidthMm, problems);
         }
 
-        if (hangerHeightMm is > 0 && !string.IsNullOrWhiteSpace(settings.HangerHeightParameter))
+        if (hangerHeightMm is > 0)
         {
-            ParameterUnits.TrySetMillimetres(
-                instance.LookupParameter(settings.HangerHeightParameter), hangerHeightMm.Value);
+            Verify(instance, settings.HangerHeightParameter, hangerHeightMm.Value, problems);
+        }
+
+        return problems.Count == 0 ? null : string.Join("; ", problems);
+    }
+
+    /// <summary>
+    /// Millimetres a written value may differ from the requested one and still
+    /// count as landed — enough to absorb Revit's internal-unit round trip.
+    /// </summary>
+    private const double ToleranceMm = 0.5;
+
+    /// <summary>
+    /// Writes a dimension and reads it back.
+    ///
+    /// This catches a parameter that is read-only, formula-driven, or of a type
+    /// that will not hold the value. It deliberately does *not* catch a units
+    /// mistake: reading uses the same assumption as writing, so when that
+    /// assumption is wrong both sides agree on the wrong answer.
+    /// CheckPlausibleSize measures the built geometry for that.
+    /// </summary>
+    private static void Verify(
+        FamilyInstance instance,
+        string parameterName,
+        double expectedMm,
+        List<string> problems)
+    {
+        if (string.IsNullOrWhiteSpace(parameterName))
+        {
+            return;
+        }
+
+        var parameter = instance.LookupParameter(parameterName);
+
+        if (parameter is null)
+        {
+            // The family simply does not have it; that is a configuration
+            // choice, not a fault.
+            return;
+        }
+
+        if (!ParameterUnits.TrySetMillimetres(parameter, expectedMm))
+        {
+            problems.Add($"'{parameterName}' could not be set (read-only, or not a number).");
+            return;
+        }
+
+        var actual = ParameterUnits.TryGetMillimetres(instance.LookupParameter(parameterName));
+
+        if (actual is null || Math.Abs(actual.Value - expectedMm) > ToleranceMm)
+        {
+            problems.Add(
+                $"'{parameterName}' was set to {expectedMm:0.##}mm but reads back as "
+                + $"{actual?.ToString("0.##") ?? "nothing"}mm.");
         }
     }
 

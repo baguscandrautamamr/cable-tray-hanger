@@ -24,24 +24,27 @@ internal static class CableTrayScanner
     /// </summary>
     private const double HeightAgreementMm = 1.0;
 
-    public static ScanPayload Scan(Document document, View view, AddinSettings settings)
+    /// <summary>
+    /// Reads the picked elements. `view` is only used to name the scan and to
+    /// look for hangers already standing on the picked runs.
+    /// </summary>
+    public static ScanPayload Scan(
+        Document document,
+        View view,
+        IReadOnlyCollection<Element> selected,
+        AddinSettings settings)
     {
-        var trays = new FilteredElementCollector(document, view.Id)
-            .OfCategory(BuiltInCategory.OST_CableTray)
-            .WhereElementIsNotElementType()
-            .OfType<CableTray>()
-            .ToList();
-
-        var fittings = new FilteredElementCollector(document, view.Id)
-            .OfCategory(BuiltInCategory.OST_CableTrayFitting)
-            .WhereElementIsNotElementType()
-            .OfType<FamilyInstance>()
-            .ToList();
+        var trays = selected.OfType<CableTray>().ToList();
+        var fittings = selected.OfType<FamilyInstance>().ToList();
 
         // Hangers are themselves cable tray fittings in at least one real
         // family ("ACT_E_SUPPORT HANGING CABEL TRAY"), so without this split
         // every hanger already in the model was counted as an elbow and earned
         // itself another hanger on the next sync.
+        //
+        // Existing hangers are looked for across the view rather than only in
+        // the selection: leaving a revised run alone must not depend on the
+        // person having remembered to select its hangers too.
         var keyword = settings.HangerFamilyKeyword;
         var hangerInstances = FindHangerInstances(document, view, keyword);
         var hangerIds = hangerInstances.Select(instance => instance.Id).ToHashSet();
@@ -104,13 +107,22 @@ internal static class CableTrayScanner
             return [];
         }
 
-        return new FilteredElementCollector(document, view.Id)
-            .OfClass(typeof(FamilyInstance))
-            .OfType<FamilyInstance>()
-            .Where(instance =>
-                instance.Symbol?.Family?.Name is { } name
-                && name.Contains(keyword, StringComparison.OrdinalIgnoreCase))
-            .ToList();
+        try
+        {
+            return new FilteredElementCollector(document, view.Id)
+                .OfClass(typeof(FamilyInstance))
+                .OfType<FamilyInstance>()
+                .Where(instance =>
+                    instance.Symbol?.Family?.Name is { } name
+                    && name.Contains(keyword, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+        }
+        catch (Autodesk.Revit.Exceptions.ApplicationException)
+        {
+            // Not every view can host a collector. Finding no existing hangers
+            // only means no run is skipped; it is not worth failing the scan.
+            return [];
+        }
     }
 
     /// <summary>

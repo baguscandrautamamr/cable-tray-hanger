@@ -155,10 +155,16 @@ The response contains only booleans — never a value, a URL or a key.
 
 ## The Revit → web → Revit loop
 
-1. **Scan Cable Tray** in Revit posts the active view's trays, elbows and
-   hanger families to `POST /api/scan-cable-tray`, which stores them against
-   the account that owns the API key. Each tray carries its **width** and how
-   many hangers are already on it.
+1. **Scan Cable Tray** in Revit asks you to select cable trays and their
+   fittings and click **Finish** — or uses whatever is already selected. Those
+   elements are posted to `POST /api/scan-cable-tray`, which stores them
+   against the account that owns the API key. Each tray carries its **width**
+   and how many hangers are already on it.
+
+   Selecting beats sweeping the active view: a 3D view shows every run in the
+   model, including other levels and runs already done, with no way to say
+   "these ones". Fittings are worth selecting alongside the trays — an elbow is
+   what forces a hanger at a direction change.
 2. The config form reads the newest scan from `GET /api/latest-scan`. There is
    no tray to pick: a config covers **every** tray in the scan, because a run
    needs hangers along all of it and choosing them one at a time was the slow
