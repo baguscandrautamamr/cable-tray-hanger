@@ -50,7 +50,8 @@ internal static class CableTrayScanner
         var hangerIds = hangerInstances.Select(instance => instance.Id).ToHashSet();
         var elbowCandidates = fittings.Where(fitting => !hangerIds.Contains(fitting.Id));
 
-        var existing = CountHangersPerTray(trays, hangerInstances, settings.HangerHeightParameter);
+        var centrelines = Centrelines(trays);
+        var existing = CountHangersPerTray(centrelines, hangerInstances, settings.HangerHeightParameter);
         var (families, matchedKeyword) = FindHangerFamilies(document, keyword);
 
         return new ScanPayload
@@ -58,7 +59,7 @@ internal static class CableTrayScanner
             ProjectName = settings.ProjectName,
             ViewName = view.Name,
             CableTrays = trays.Select(tray => ToDto(document, tray, existing)).ToList(),
-            Elbows = FindElbows(trays, elbowCandidates),
+            Elbows = FindElbows(centrelines, elbowCandidates),
             HangerFamilies = families,
             HangerFamilyKeyword = keyword,
             HangerFamiliesMatchedKeyword = matchedKeyword,
@@ -131,7 +132,7 @@ internal static class CableTrayScanner
     /// the point of the number is to say what is actually in the model.
     /// </summary>
     private static Dictionary<ElementId, ExistingHangers> CountHangersPerTray(
-        IReadOnlyCollection<CableTray> trays,
+        IReadOnlyCollection<(CableTray Tray, Curve Curve)> centrelines,
         IEnumerable<FamilyInstance> hangers,
         string heightParameter)
     {
@@ -144,7 +145,7 @@ internal static class CableTrayScanner
                 continue;
             }
 
-            if (NearestTray(trays, origin) is not { } match)
+            if (NearestTray(centrelines, origin) is not { } match)
             {
                 continue;
             }
@@ -181,26 +182,46 @@ internal static class CableTrayScanner
 
     private sealed record TrayMatch(CableTray Tray, Curve Curve, double Distance);
 
+    /// <summary>
+    /// The trays to match against, with their centrelines read once.
+    ///
+    /// Every fitting and every existing hanger in the view is matched against
+    /// every tray, so this ran Location -> Curve for each pairing: on a floor's
+    /// worth of selection that is tens of thousands of casts before any real
+    /// work happens.
+    /// </summary>
+    private static List<(CableTray Tray, Curve Curve)> Centrelines(IEnumerable<CableTray> trays) =>
+        trays
+            .Select(tray => (Tray: tray, Curve: GetCurve(tray)))
+            .Where(entry => entry.Curve is not null)
+            .Select(entry => (entry.Tray, Curve: entry.Curve!))
+            .ToList();
+
     /// <summary>The tray whose centreline passes closest to a point, within tolerance.</summary>
-    private static TrayMatch? NearestTray(IReadOnlyCollection<CableTray> trays, XYZ origin)
+    private static TrayMatch? NearestTray(
+        IReadOnlyCollection<(CableTray Tray, Curve Curve)> centrelines,
+        XYZ origin)
     {
-        TrayMatch? best = null;
+        (CableTray Tray, Curve Curve)? best = null;
+        var bestDistance = double.MaxValue;
 
-        foreach (var tray in trays)
+        foreach (var candidate in centrelines)
         {
-            if (GetCurve(tray) is not { } curve)
-            {
-                continue;
-            }
+            // Distance, not Project: it answers the only question asked in this
+            // loop and does it without building an IntersectionResult per tray.
+            // The winner is projected once, afterwards.
+            var distance = candidate.Curve.Distance(origin);
 
-            var projected = curve.Project(origin);
-            if (projected is not null && (best is null || projected.Distance < best.Distance))
+            if (distance < bestDistance)
             {
-                best = new TrayMatch(tray, curve, projected.Distance);
+                best = candidate;
+                bestDistance = distance;
             }
         }
 
-        return best is not null && best.Distance <= FittingToTrayToleranceFt ? best : null;
+        return best is { } match && bestDistance <= FittingToTrayToleranceFt
+            ? new TrayMatch(match.Tray, match.Curve, bestDistance)
+            : null;
     }
 
     /// <summary>
@@ -213,7 +234,9 @@ internal static class CableTrayScanner
     /// The owning tray has to travel with the position: a scan usually covers
     /// several runs, and 4.2m means nothing without saying 4.2m along *what*.
     /// </summary>
-    private static List<ElbowDto> FindElbows(IReadOnlyCollection<CableTray> trays, IEnumerable<FamilyInstance> fittings)
+    private static List<ElbowDto> FindElbows(
+        IReadOnlyCollection<(CableTray Tray, Curve Curve)> centrelines,
+        IEnumerable<FamilyInstance> fittings)
     {
         var elbows = new List<ElbowDto>();
 
@@ -224,7 +247,7 @@ internal static class CableTrayScanner
                 continue;
             }
 
-            if (NearestTray(trays, origin) is not { } match)
+            if (NearestTray(centrelines, origin) is not { } match)
             {
                 continue;
             }

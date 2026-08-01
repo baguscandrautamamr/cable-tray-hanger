@@ -7,10 +7,15 @@ using CableTrayHanger.Addin.Model;
 
 namespace CableTrayHanger.Addin.Services;
 
-internal sealed record PlacementOutcome(int Placed, IReadOnlyList<string> Failures)
-{
-    public bool AllPlaced => Failures.Count == 0;
-}
+/// <summary>
+/// What one tray's worth of placement did.
+///
+/// `Warning` is kept apart from `Failures` because it is not one: a dimension
+/// the family would not take describes hangers that are standing in the model,
+/// and counting it as a failure made "10 could not be placed" mean ten
+/// messages rather than ten hangers.
+/// </summary>
+internal sealed record PlacementOutcome(int Placed, IReadOnlyList<string> Failures, string? Warning);
 
 /// <summary>
 /// Where a hanger already stands in this sync, so two of them never end up
@@ -43,18 +48,27 @@ internal sealed class PlacedHangers
     /// <summary>Positions passed over because a hanger already stood there.</summary>
     public int Skipped { get; private set; }
 
-    /// <summary>Takes the spot for a new hanger, or reports it as already taken.</summary>
-    public bool TryClaim(XYZ point)
+    /// <summary>
+    /// True when a hanger already standing covers this position, which is then
+    /// counted as skipped.
+    /// </summary>
+    public bool Serves(XYZ point)
     {
-        if (_points.Any(existing => existing.DistanceTo(point) < _clearanceFt))
+        if (!_points.Any(existing => existing.DistanceTo(point) < _clearanceFt))
         {
-            Skipped++;
             return false;
         }
 
-        _points.Add(point);
+        Skipped++;
         return true;
     }
+
+    /// <summary>
+    /// Records a hanger that is now standing here. Called after Revit has built
+    /// it, not before: a position Revit refuses leaves nothing in the model, and
+    /// must not stop the tray on the other side of the joint from trying.
+    /// </summary>
+    public void Claim(XYZ point) => _points.Add(point);
 }
 
 /// <summary>Places hanger family instances along a cable tray at positions the web app calculated.</summary>
@@ -78,11 +92,15 @@ internal static class HangerPlacer
         ConfigTrayDto tray,
         double? hangerHeightMm,
         AddinSettings settings,
-        PlacedHangers placedHangers)
+        PlacedHangers placedHangers,
+        bool verifyGeometry)
     {
         if (CableTrayScanner.GetCurve(cableTray) is not { } curve)
         {
-            return new PlacementOutcome(0, [$"Cable tray {cableTray.Id} has no location curve to place along."]);
+            return new PlacementOutcome(
+                0,
+                [$"Cable tray {cableTray.Id} has no location curve to place along."],
+                null);
         }
 
         if (!symbol.IsActive)
@@ -115,7 +133,7 @@ internal static class HangerPlacer
 
             // Not a failure: the position is served, by the hanger the tray on
             // the other side of the joint already put there.
-            if (!placedHangers.TryClaim(point))
+            if (placedHangers.Serves(point))
             {
                 continue;
             }
@@ -132,13 +150,22 @@ internal static class HangerPlacer
                     continue;
                 }
 
+                placedHangers.Claim(point);
+
                 var firstOnThisTray = placed == 0;
 
-                dimensionProblem ??= ApplyDimensions(instance, tray.TrayWidthMm, hangerHeightMm, settings);
-                AlignToRun(document, instance, curve, normalized, point, settings);
+                // Every hanger is sized, and only the first complaint is kept.
+                // Writing this as `dimensionProblem ??= ApplyDimensions(...)`
+                // skipped the call itself once a problem was recorded, so on a
+                // tray whose height would not take, every hanger after the
+                // first was left at the family's own width as well.
+                var problem = ApplyDimensions(instance, tray.TrayWidthMm, hangerHeightMm, settings);
+                dimensionProblem ??= problem;
+
+                AlignToRun(instance, curve, normalized, point, settings);
                 placed++;
 
-                if (firstOnThisTray)
+                if (firstOnThisTray && verifyGeometry)
                 {
                     dimensionProblem ??= CheckPlausibleSize(document, instance, tray.CableTrayName);
                 }
@@ -151,12 +178,7 @@ internal static class HangerPlacer
             }
         }
 
-        if (dimensionProblem is not null)
-        {
-            failures.Add(dimensionProblem);
-        }
-
-        return new PlacementOutcome(placed, failures);
+        return new PlacementOutcome(placed, failures, dimensionProblem);
     }
 
     /// <summary>
@@ -173,7 +195,6 @@ internal static class HangerPlacer
     /// is worth reporting nowhere and undoing nothing.
     /// </summary>
     private static void AlignToRun(
-        Document document,
         FamilyInstance instance,
         Curve curve,
         double normalized,
@@ -203,7 +224,13 @@ internal static class HangerPlacer
         try
         {
             var axis = Line.CreateBound(point, point + XYZ.BasisZ);
-            ElementTransformUtils.RotateElement(document, instance.Id, axis, angle);
+
+            // instance.Location.Rotate, not ElementTransformUtils.RotateElement:
+            // the latter regenerates the document on every call, which is one
+            // full regeneration per hanger and the single heaviest thing this
+            // command did. Rotating through the element's own Location leaves
+            // the regeneration to Revit, which does it once.
+            instance.Location?.Rotate(axis, angle);
         }
         catch (Autodesk.Revit.Exceptions.ApplicationException)
         {
@@ -329,13 +356,20 @@ internal static class HangerPlacer
             return;
         }
 
-        var actual = ParameterUnits.TryGetMillimetres(instance.LookupParameter(parameterName));
+        // Read back through the same Parameter object rather than looking the
+        // name up again. A model can carry two parameters of one name — a family
+        // parameter and a project parameter bound to the category — and a second
+        // lookup is free to hand back the other one, which would report a value
+        // that landed perfectly well as having been ignored.
+        var actual = ParameterUnits.TryGetMillimetres(parameter);
 
         if (actual is null || Math.Abs(actual.Value - expectedMm) > ToleranceMm)
         {
             problems.Add(
                 $"'{parameterName}' was set to {expectedMm:0.##}mm but reads back as "
-                + $"{actual?.ToString("0.##") ?? "nothing"}mm.");
+                + $"{actual?.ToString("0.##") ?? "nothing"}mm — the family is holding its own "
+                + "value, so that dimension is driven by the type or by a locked constraint "
+                + "rather than by the instance.");
         }
     }
 

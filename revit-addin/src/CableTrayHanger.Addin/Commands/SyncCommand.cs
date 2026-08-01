@@ -16,6 +16,22 @@ public sealed class SyncCommand : IExternalCommand
     /// <summary>How many individual failures to spell out before summarising.</summary>
     private const int MaxReportedFailures = 5;
 
+    /// <summary>
+    /// What a tray id that resolves to nothing actually means. Revit hands an
+    /// element a new id when it is redrawn, split or joined, so a run that was
+    /// edited after the scan is a different element by the time Sync looks for
+    /// it — the id in the configuration belongs to something that no longer
+    /// exists.
+    /// </summary>
+    private const string StaleScanAdvice =
+        "Those trays were in the model when the scan was taken. Editing a run gives it a new "
+        + "id, so a configuration built from an older scan can no longer find it. Run Scan "
+        + "Cable Tray again, push a new configuration from the web app, and sync that.";
+
+    private static string Describe(ConfigTrayDto tray) =>
+        $"{tray.CableTrayName} (id {tray.CableTrayId}): "
+        + $"not in this model — {tray.PlacementPositions.Count} hangers.";
+
     public Result Execute(ExternalCommandData commandData, ref string message, ElementSet elements)
     {
         // Anything unhandled here becomes Revit's "Command Failure for External
@@ -84,6 +100,12 @@ public sealed class SyncCommand : IExternalCommand
         var resolved = new List<(ConfigTrayDto Tray, Element Element)>();
         var failures = new List<string>();
 
+        // Kept apart from the failures: a tray that is not here did not fail to
+        // take its hangers, it was never reached, and it takes all of its
+        // positions down with it. Lumping the two together is what made a
+        // dialog say "10 could not be placed" about three trays.
+        var missing = new List<ConfigTrayDto>();
+
         foreach (var tray in config.Trays)
         {
             if (HangerPlacer.FindCableTray(document, tray.CableTrayId) is { } element)
@@ -94,14 +116,15 @@ public sealed class SyncCommand : IExternalCommand
             {
                 // A tray deleted since the scan, or a config from another model.
                 // One missing tray should not stop the other six being placed.
-                failures.Add($"{tray.CableTrayName} (id {tray.CableTrayId}): not in this model.");
+                missing.Add(tray);
             }
         }
 
         if (resolved.Count == 0)
         {
             message = "None of the configuration's cable trays are in this model:\n\n"
-                      + string.Join("\n", failures.Take(MaxReportedFailures));
+                      + string.Join("\n", missing.Take(MaxReportedFailures).Select(Describe))
+                      + "\n\n" + StaleScanAdvice;
             return Result.Failed;
         }
 
@@ -115,6 +138,10 @@ public sealed class SyncCommand : IExternalCommand
         // schedule a hanger at the joint, and only their coordinates say that
         // is one place rather than two.
         var placedHangers = new PlacedHangers();
+
+        // A dimension the family would not take. The hangers are standing; it
+        // is the size that is not what was asked for.
+        var warnings = new List<string>();
 
         // One transaction for the whole run: a half-placed model is worse than
         // an unplaced one, and a single undo should take all of it back.
@@ -137,10 +164,26 @@ public sealed class SyncCommand : IExternalCommand
                 typesUsed.Add($"{Math.Round(tray.TrayWidthMm)}mm → {symbol.Name}");
 
                 var outcome = HangerPlacer.Place(
-                    document, element, symbol, tray, config.HangerHeightMm, settings, placedHangers);
+                    document,
+                    element,
+                    symbol,
+                    tray,
+                    config.HangerHeightMm,
+                    settings,
+                    placedHangers,
+                    // Once. It measures a built hanger to catch a dimension that
+                    // went in wrong, and answers the same for the second tray as
+                    // for the first — at the price of a full regeneration each
+                    // time it is asked.
+                    verifyGeometry: placed == 0);
 
                 placed += outcome.Placed;
                 failures.AddRange(outcome.Failures.Select(failure => $"{tray.CableTrayName}: {failure}"));
+
+                if (outcome.Warning is { } warning)
+                {
+                    warnings.Add($"{tray.CableTrayName}: {warning}");
+                }
             }
 
             if (placed == 0)
@@ -155,18 +198,52 @@ public sealed class SyncCommand : IExternalCommand
             transaction.Commit();
         }
 
-        var allPlaced = failures.Count == 0;
+        // A warning is not a failure: those hangers are in the model. Only a
+        // tray that was never reached, or a position Revit refused, is.
+        var allPlaced = failures.Count == 0 && missing.Count == 0;
         ReportOutcome(client, config, placed, allPlaced);
 
         var summary = $"Placed {placed} of {config.TotalHangers} hangers "
                       + $"across {resolved.Count} of {config.Trays.Count} cable trays.";
 
-        // Said plainly, because otherwise "placed 47 of 52" reads as five that
-        // went wrong rather than five that were never wanted.
+        // Account for every hanger that is not in the model, by name. "Placed
+        // 41 of 68" on its own invites the reading that 27 went wrong, when
+        // most of them were never attempted and some were never wanted.
+        var lost = missing.Sum(tray => tray.PlacementPositions.Count);
+        var unaccounted = new List<string>();
+
+        if (lost > 0)
+        {
+            unaccounted.Add(
+                $"{lost} belong to {missing.Count} cable "
+                + $"{(missing.Count == 1 ? "tray that is" : "trays that are")} not in this model");
+        }
+
         if (placedHangers.Skipped > 0)
         {
-            summary += $"\n\n{placedHangers.Skipped} of them were already served: where two trays "
-                       + "meet, the joint takes one hanger rather than one from each side.";
+            unaccounted.Add(
+                $"{placedHangers.Skipped} were already served — where two trays meet, the joint "
+                + "takes one hanger rather than one from each side");
+        }
+
+        if (failures.Count > 0)
+        {
+            unaccounted.Add($"{failures.Count} were refused by Revit");
+        }
+
+        if (unaccounted.Count > 0)
+        {
+            summary += $"\n\nOf the other {config.TotalHangers - placed}:\n  "
+                       + string.Join("\n  ", unaccounted);
+        }
+
+        if (missing.Count > 0)
+        {
+            summary += "\n\n" + string.Join("\n", missing.Take(MaxReportedFailures).Select(Describe))
+                       + (missing.Count > MaxReportedFailures
+                           ? $"\n... and {missing.Count - MaxReportedFailures} more."
+                           : "")
+                       + "\n\n" + StaleScanAdvice;
         }
 
         if (config.HangerHeightMm is > 0)
@@ -187,7 +264,20 @@ public sealed class SyncCommand : IExternalCommand
             }
         }
 
-        if (!allPlaced)
+        if (warnings.Count > 0)
+        {
+            summary += $"\n\nThe hangers are placed, but {warnings.Count} of the "
+                       + $"{resolved.Count} trays did not take a dimension:\n"
+                       + string.Join("\n", warnings.Take(MaxReportedFailures))
+                       + (warnings.Count > MaxReportedFailures
+                           ? $"\n... and {warnings.Count - MaxReportedFailures} more."
+                           : "")
+                       + "\n\nA dimension the family holds its own value for has to be changed on "
+                       + "the family type, not the instance — or point Settings at the parameter "
+                       + "that really drives it.";
+        }
+
+        if (failures.Count > 0)
         {
             summary += $"\n\n{failures.Count} could not be placed:\n"
                        + string.Join("\n", failures.Take(MaxReportedFailures))
