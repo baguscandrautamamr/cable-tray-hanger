@@ -76,9 +76,16 @@ internal static class HangerPlacer
                     continue;
                 }
 
+                var firstOnThisTray = placed == 0;
+
                 dimensionProblem ??= ApplyDimensions(instance, tray.TrayWidthMm, hangerHeightMm, settings);
                 AlignToRun(document, instance, curve, normalized, point);
                 placed++;
+
+                if (firstOnThisTray)
+                {
+                    dimensionProblem ??= CheckPlausibleSize(document, instance, tray.CableTrayName);
+                }
             }
             catch (Autodesk.Revit.Exceptions.ApplicationException ex)
             {
@@ -150,6 +157,54 @@ internal static class HangerPlacer
     /// silently — every office names these differently, which is why both names
     /// are settings rather than constants.
     /// </summary>
+    /// <summary>
+    /// No cable tray hanger is this wide. Anything past it is not a hanger that
+    /// needs a second look, it is a unit that went in wrong.
+    /// </summary>
+    private const double ImplausibleSpanMetres = 10.0;
+
+    /// <summary>
+    /// Measures the hanger that was just built and complains if it came out
+    /// absurd.
+    ///
+    /// This is the check that would have caught TRAY_W landing at 182,880mm,
+    /// and reading the parameter back would not have: reading uses the same
+    /// units assumption as writing, so when that assumption is wrong both
+    /// sides are wrong together and agree perfectly. A bounding box owes
+    /// nothing to the assumption — it is the geometry Revit actually built.
+    /// </summary>
+    private static string? CheckPlausibleSize(Document document, FamilyInstance instance, string trayName)
+    {
+        try
+        {
+            // The instance was built from the old parameter values; without
+            // this its box still describes the shape before they were set.
+            document.Regenerate();
+
+            if (instance.get_BoundingBox(null) is not { } box)
+            {
+                return null;
+            }
+
+            var spanFt = Math.Max(box.Max.X - box.Min.X, box.Max.Y - box.Min.Y);
+            var spanM = UnitUtils.ConvertFromInternalUnits(spanFt, UnitTypeId.Meters);
+
+            if (spanM <= ImplausibleSpanMetres)
+            {
+                return null;
+            }
+
+            return $"On {trayName} the hanger came out {spanM:0.#}m across, which is not a hanger. "
+                   + "A dimension went into the family in the wrong units — check the Tray width "
+                   + "and Hanger height parameter names in Settings against the family.";
+        }
+        catch (Autodesk.Revit.Exceptions.ApplicationException)
+        {
+            // No geometry to measure. Not a reason to fail the placement.
+            return null;
+        }
+    }
+
     /// <summary>Returns a description of anything that did not land, or null.</summary>
     private static string? ApplyDimensions(
         FamilyInstance instance,
@@ -181,11 +236,11 @@ internal static class HangerPlacer
     /// <summary>
     /// Writes a dimension and reads it back.
     ///
-    /// The read-back is the point. A unit conversion that goes the wrong way
-    /// does not throw — it writes 600 where 600mm was meant and Revit reads it
-    /// as 600 feet, so the family comes out 182.88m wide and nothing anywhere
-    /// says a word. Checking what actually landed turns that into a sentence
-    /// naming the parameter and both numbers.
+    /// This catches a parameter that is read-only, formula-driven, or of a type
+    /// that will not hold the value. It deliberately does *not* catch a units
+    /// mistake: reading uses the same assumption as writing, so when that
+    /// assumption is wrong both sides agree on the wrong answer.
+    /// CheckPlausibleSize measures the built geometry for that.
     /// </summary>
     private static void Verify(
         FamilyInstance instance,
