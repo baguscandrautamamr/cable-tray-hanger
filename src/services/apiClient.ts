@@ -9,6 +9,25 @@ import { supabase } from "./supabaseClient";
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "";
 
 /**
+ * The origin the API calls actually go to, when that is not the page's own.
+ * Null means same-origin, which is the correct setup for a normal deployment.
+ *
+ * A wrong value here sends every request to somebody else's deployment, which
+ * answers with platform 404/405 errors that look like bugs in this app — so it
+ * is worth surfacing rather than debugging blind.
+ */
+export function crossOriginApiTarget(): string | null {
+  if (!API_BASE_URL) return null;
+
+  try {
+    const target = new URL(API_BASE_URL, window.location.href);
+    return target.origin === window.location.origin ? null : target.origin;
+  } catch {
+    return API_BASE_URL; // Unparseable: definitely worth complaining about.
+  }
+}
+
+/**
  * The add-in endpoints (`/api/scan-cable-tray`, `/api/latest-config`,
  * `/api/config-status/:id`) are deliberately absent from this module. They
  * authenticate with the shared ADDIN_API_KEY, which is a server-side secret and

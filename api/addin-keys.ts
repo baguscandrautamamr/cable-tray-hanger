@@ -1,6 +1,7 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { apiKeyPreview, generateApiKey, hashApiKey, requireUser } from "./_lib/auth";
 import { resolveSupabaseAdmin } from "./_lib/supabaseAdmin";
+import { handledPreflight } from "./_lib/http";
 
 const MAX_ACTIVE_KEYS = 20;
 
@@ -12,6 +13,8 @@ const MAX_ACTIVE_KEYS = 20;
  *   DELETE /api/addin-keys?id=...   revoke one
  */
 export default async function handler(req: VercelRequest, res: VercelResponse) {
+  if (handledPreflight(req, res)) return;
+
   if (!["GET", "POST", "DELETE"].includes(req.method ?? "")) {
     res.setHeader("Allow", "GET, POST, DELETE");
     return res.status(405).json({ status: "FAILED", message: "Method not allowed" });

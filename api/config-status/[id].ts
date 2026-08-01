@@ -1,11 +1,14 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { requireAddinKey } from "../_lib/auth";
 import { resolveSupabaseAdmin } from "../_lib/supabaseAdmin";
+import { handledPreflight } from "../_lib/http";
 
 /** Terminal states the add-in may report. Mirrors the CHECK in schema.sql. */
 const ALLOWED_STATUSES = ["SYNCED", "FAILED"];
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
+  if (handledPreflight(req, res)) return;
+
   if (req.method !== "PATCH") {
     res.setHeader("Allow", "PATCH");
     return res.status(405).json({ status: "FAILED", message: "Method not allowed" });

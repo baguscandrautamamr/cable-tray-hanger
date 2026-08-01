@@ -1,6 +1,7 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { hashApiKey } from "./_lib/auth";
 import { getSupabaseAdmin, missingServerEnv } from "./_lib/supabaseAdmin";
+import { handledPreflight } from "./_lib/http";
 
 /**
  * GET /api/health — what is and is not configured on this deployment.
@@ -17,6 +18,8 @@ import { getSupabaseAdmin, missingServerEnv } from "./_lib/supabaseAdmin";
  * accepted, which is what the add-in's "Test connection" button uses.
  */
 export default async function handler(req: VercelRequest, res: VercelResponse) {
+  if (handledPreflight(req, res)) return;
+
   if (req.method !== "GET") {
     res.setHeader("Allow", "GET");
     return res.status(405).json({ status: "FAILED", message: "Method not allowed" });

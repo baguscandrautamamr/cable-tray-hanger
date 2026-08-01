@@ -3,8 +3,11 @@ import type { HangerConfigInput } from "../src/types";
 import { calculatePlacements } from "../src/services/placementAlgorithm";
 import { requireUser } from "./_lib/auth";
 import { resolveSupabaseAdmin } from "./_lib/supabaseAdmin";
+import { handledPreflight } from "./_lib/http";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
+  if (handledPreflight(req, res)) return;
+
   if (req.method !== "POST") {
     res.setHeader("Allow", "POST");
     return res.status(405).json({ status: "FAILED", message: "Method not allowed" });

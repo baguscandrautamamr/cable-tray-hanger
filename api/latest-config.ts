@@ -1,8 +1,11 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { requireAddinKey } from "./_lib/auth";
 import { resolveSupabaseAdmin } from "./_lib/supabaseAdmin";
+import { handledPreflight } from "./_lib/http";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
+  if (handledPreflight(req, res)) return;
+
   if (req.method !== "GET") {
     res.setHeader("Allow", "GET");
     return res.status(405).json({ status: "FAILED", message: "Method not allowed" });
