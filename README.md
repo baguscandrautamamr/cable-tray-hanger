@@ -180,8 +180,20 @@ the first scan arrives — the two can no longer drift apart.
 ### Width, height, and revisions
 
 **Width is never typed in.** The hanger has to span the tray, so the add-in
-writes each tray's own width into the hanger's width parameter. One config
-serves runs of different widths.
+sizes it from the tray's own width. One config serves runs of different widths.
+
+The steady way to do that is **a family type per width** — 100, 200 … 1000.
+Choosing a type cannot go wrong in units, it schedules properly, and the family
+author decides what a 600 hanger looks like rather than having a number pushed
+at it. The add-in matches a type by its own width parameter, or failing that by
+a number in the type name (`SUPPORT HANGING 600`). A family with a single type
+still works: the width is written onto each instance instead, and the Sync
+dialog says so.
+
+**Orientation.** Each hanger is turned to the heading of its tray, plus the
+**Hanger rotation** in Settings — 90° for a family drawn across the tray, 0°
+for one drawn along it. Nothing in the model says which you have, so if they
+come out facing the wrong way, that is the one number to change.
 
 **Height is the one dimension the model cannot supply**, so the web app asks
 for it — and it is written *only* onto hangers the add-in creates. A hanger
