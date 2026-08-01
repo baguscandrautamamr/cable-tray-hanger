@@ -26,9 +26,20 @@ function App() {
   return (
     <BrowserRouter>
       {!isSupabaseConfigured && (
-        <div className="bg-amber-500 px-4 py-2 text-center text-sm font-medium text-slate-950">
-          Supabase not configured — set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in
-          .env.local
+        <div className="bg-amber-500 px-4 py-3 text-center text-sm font-medium text-slate-950">
+          <p>
+            Supabase not configured — set <code>VITE_SUPABASE_URL</code> and{" "}
+            <code>VITE_SUPABASE_ANON_KEY</code>, then rebuild.
+          </p>
+          {/* These are baked into the bundle at build time, so on a deployed
+              site they live in the host's settings, not in a file — and saving
+              them is not enough without a redeploy. */}
+          <p className="mt-0.5 text-xs font-normal text-slate-900/80">
+            Locally: <code>.env.local</code>. On Vercel: Settings → Environment Variables, then
+            redeploy. These are separate from the server-side <code>SUPABASE_URL</code> /{" "}
+            <code>SUPABASE_SERVICE_ROLE_KEY</code>; use the <strong>anon</strong> key here, never
+            the service role.
+          </p>
         </div>
       )}
       <Routes>

@@ -19,19 +19,34 @@ npm run dev
 
 ## Environment variables
 
-| Variable | Where | Description |
-|---|---|---|
-| `VITE_SUPABASE_URL` | frontend | Supabase project URL |
-| `VITE_SUPABASE_ANON_KEY` | frontend | Supabase anon/public key |
-| `VITE_API_BASE_URL` | frontend | Base URL of the deployed backend |
-| `VITE_PROJECT_NAME` | frontend | Default Revit project name shown in UI |
-| `SUPABASE_URL` | Vercel (server) | Same Supabase project URL |
-| `SUPABASE_SERVICE_ROLE_KEY` | Vercel (server) | Service role key — never expose to the client |
-| `ADDIN_API_KEY` | Vercel (server), optional | Fallback shared secret — see below |
+There are **two pairs** of Supabase variables and they are not
+interchangeable. A deployment needs all four: the `VITE_` pair is compiled into
+the browser bundle, the unprefixed pair is read by the serverless functions.
+Setting only one pair is the most common way to get this half-working.
 
-The two `SUPABASE_*` variables are **required**. Set them in Vercel under
-**Settings → Environment Variables** (Production/Preview/Development scopes),
-not in a committed file. Without them every `api/` route fails.
+| Variable | Where | Value | Symptom if missing |
+|---|---|---|---|
+| `VITE_SUPABASE_URL` | browser | Supabase project URL | Amber "not configured" banner; login does nothing |
+| `VITE_SUPABASE_ANON_KEY` | browser | **anon / public** key | Same |
+| `VITE_API_BASE_URL` | browser | Base URL of the deployed backend | API calls go to the wrong origin |
+| `VITE_PROJECT_NAME` | browser | Default Revit project name shown in the UI | Falls back to a default |
+| `SUPABASE_URL` | server | *Same value* as `VITE_SUPABASE_URL` | Every `api/` route 500s |
+| `SUPABASE_SERVICE_ROLE_KEY` | server | **service_role** key | Same |
+| `ADDIN_API_KEY` | server, optional | Fallback shared secret — see below | Nothing; it is optional |
+
+Two things this trips people on:
+
+- **Never put the service_role key in a `VITE_` variable.** Anything prefixed
+  `VITE_` is compiled into the JavaScript bundle and readable by anyone with
+  DevTools, and the service role bypasses row-level security entirely. The anon
+  key is designed to be public and is the right one for the browser.
+- **`VITE_` variables are read at build time, not at runtime.** Saving them in
+  Vercel is not enough — redeploy so they end up in the bundle. The unprefixed
+  server variables *are* read at runtime, so those take effect on the next
+  request.
+
+Set all of them in Vercel under **Settings → Environment Variables**
+(Production/Preview/Development scopes), never in a committed file.
 
 `ADDIN_API_KEY` is optional and usually unnecessary. Add-in keys are normally
 generated per user in the web app (**API Keys** in the header), which is the
