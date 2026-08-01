@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Elbow } from "../types";
 import {
   MAX_LENGTH_M,
+  MIN_CLEARANCE_M,
   MIN_SPACING_MM,
   calculatePlacements,
   summarizePlacements,
@@ -94,6 +95,43 @@ describe("calculatePlacements", () => {
       expect(calculatePlacements(10, 1500, elbowsAt(7, 3))).toEqual(
         calculatePlacements(10, 1500, elbowsAt(3, 7)),
       );
+    });
+  });
+
+  describe("no two hangers closer than the clearance", () => {
+    // Regression: an elbow is scanned at the joint it sits on, which is where
+    // the tray it was matched to starts — so every such elbow scheduled a
+    // hanger a few centimetres from the START hanger, and the pair came out of
+    // Revit standing inside each other.
+    it("merges a near-start elbow into the START hanger", () => {
+      const positions = calculatePlacements(10, 1500, elbowsAt(0.04));
+
+      expect(positions[0]).toEqual({ pos_m: 0, reason: "START" });
+      expect(positions.filter((p) => p.pos_m < 0.3)).toHaveLength(1);
+    });
+
+    it("keeps an elbow that clears the START hanger", () => {
+      const positions = calculatePlacements(10, 1500, elbowsAt(MIN_CLEARANCE_M));
+
+      expect(positions[1]).toEqual({ pos_m: MIN_CLEARANCE_M, reason: "ELBOW" });
+    });
+
+    it("merges elbows bunched at one joint into a single hanger", () => {
+      // Both sides of a bend get scanned as fittings a few centimetres apart.
+      const positions = calculatePlacements(10, 1500, elbowsAt(4.2, 4.25, 4.3));
+
+      expect(summarizePlacements(positions).atElbows).toBe(1);
+      expect(positions).toContainEqual({ pos_m: 4.2, reason: "ELBOW" });
+    });
+
+    it("holds the clearance between every pair of hangers", () => {
+      const positions = calculatePlacements(45.5, 1500, elbowsAt(0.05, 1.48, 1.5, 12.8, 45.4));
+
+      for (let i = 1; i < positions.length; i++) {
+        expect(positions[i].pos_m - positions[i - 1].pos_m).toBeGreaterThanOrEqual(
+          MIN_CLEARANCE_M,
+        );
+      }
     });
   });
 
