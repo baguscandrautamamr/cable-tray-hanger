@@ -26,32 +26,60 @@ npm run dev
 | `VITE_PROJECT_NAME` | frontend | Default Revit project name shown in UI |
 | `SUPABASE_URL` | Vercel (server) | Same Supabase project URL |
 | `SUPABASE_SERVICE_ROLE_KEY` | Vercel (server) | Service role key — never expose to the client |
+| `ADDIN_API_KEY` | Vercel (server) | Shared secret the Revit add-in sends as `x-api-key` |
 
-Set the two `SUPABASE_*` server variables in Vercel under
-**Settings → Environment Variables** (Production/Preview/Development scopes),
-not in a committed file.
+Set the server variables in Vercel under **Settings → Environment Variables**
+(Production/Preview/Development scopes), not in a committed file. Generate the
+add-in key with `openssl rand -hex 32`; without it the add-in endpoints refuse
+every request.
 
 ## Database
 
 Run `supabase/schema.sql` in the Supabase SQL editor to create the
-`hanger_configs` and `hanger_placement_history` tables with RLS policies.
-Then enable email/password auth under **Authentication → Providers**.
+`hanger_configs` and `hanger_placement_history` tables with their RLS policies,
+constraints and the `confirm_placement` function. Then enable email/password
+auth under **Authentication → Providers**.
+
+For a project already running the original schema, apply
+`supabase/migrations/0001-hardening.sql` instead — it converts the timestamp
+columns to `TIMESTAMPTZ`, adds the status/spacing constraints, and installs the
+`updated_at` trigger and `confirm_placement`.
 
 ## Commands
 
 ```bash
-npm run dev       # local dev server
-npm run build     # production build (tsc -b && vite build)
-npm run lint      # oxlint
-npm run preview   # preview production build locally
+npm run dev            # local dev server
+npm run build          # production build (tsc -b && vite build)
+npm run lint           # oxlint
+npm run test           # vitest (placement algorithm)
+npm run typecheck:api  # typecheck the serverless functions
+npm run preview        # preview production build locally
 ```
 
 ## API endpoints (Vercel functions, under `api/`)
 
-- `POST /api/scan-cable-tray` — receive scan data from the Revit add-in
-- `POST /api/hanger-config` — save a config and calculate hanger placement
-- `GET /api/latest-config` — add-in polls this for a pending config
-- `PATCH /api/config-status/:id` — add-in confirms placement after sync
+Every endpoint runs with the Supabase service role key, which bypasses RLS, so
+all of them authenticate. The add-in endpoints take a shared secret; the one
+endpoint the browser calls takes the user's Supabase session token.
+
+| Endpoint | Auth | Purpose |
+|---|---|---|
+| `POST /api/scan-cable-tray` | `x-api-key` | Receive scan data from the Revit add-in |
+| `POST /api/hanger-config` | `Authorization: Bearer <supabase access token>` | Save a config and calculate hanger placement |
+| `GET /api/latest-config` | `x-api-key` | Add-in polls this for a pending config |
+| `PATCH /api/config-status/:id` | `x-api-key` | Add-in confirms placement after sync |
+
+`POST /api/hanger-config` sets the config's owner from the verified token, so
+the request body carries no user id. `PATCH /api/config-status/:id` accepts a
+`status` of `SYNCED` or `FAILED` only.
+
+## Known gaps
+
+`POST /api/scan-cable-tray` validates and acknowledges the add-in's payload but
+does not store it, so the config form still lists the placeholder trays and
+hanger families in `src/components/HangerConfigForm.tsx`. Closing the
+Revit → web loop needs a table for scan results, a read endpoint for the
+frontend, and the form switched over from those constants.
 
 ## Deploy
 

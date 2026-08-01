@@ -34,8 +34,10 @@ export default function PreviewTable({ positions, elbowPositionsM }: PreviewTabl
         <tbody className="divide-y divide-slate-800">
           {positions.map((p, i) => {
             const Icon = REASON_ICON[p.reason];
+            // pos_m is rounded to 2dp, so the comparison has to allow half a
+            // centimetre — a tighter window misses elbows the row is built from.
             const isElbow = elbowPositionsM.some(
-              (e) => Math.abs(e - p.pos_m) < 0.001,
+              (e) => Math.abs(e - p.pos_m) <= 0.005,
             );
             return (
               <tr key={`${p.pos_m}-${i}`} className="text-slate-300">

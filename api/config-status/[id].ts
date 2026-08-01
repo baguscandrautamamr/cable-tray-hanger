@@ -1,5 +1,9 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
+import { requireAddinKey } from "../_lib/auth";
 import { supabaseAdmin } from "../_lib/supabaseAdmin";
+
+/** Terminal states the add-in may report. Mirrors the CHECK in schema.sql. */
+const ALLOWED_STATUSES = ["SYNCED", "FAILED"];
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== "PATCH") {
@@ -7,43 +11,56 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(405).json({ status: "FAILED", message: "Method not allowed" });
   }
 
+  if (!requireAddinKey(req, res)) return;
+
   const { id } = req.query;
   const { status, hangers_placed, sync_timestamp, synced_by } = req.body ?? {};
 
-  if (!id || typeof id !== "string" || !status) {
-    return res.status(400).json({ status: "FAILED", message: "Missing id or status" });
+  if (!id || typeof id !== "string") {
+    return res.status(400).json({ status: "FAILED", message: "Missing config id" });
+  }
+
+  // An unrecognised status used to be written straight through to the
+  // dashboard, which renders a per-status icon and has none to show for it.
+  if (!ALLOWED_STATUSES.includes(status)) {
+    return res.status(400).json({
+      status: "FAILED",
+      message: `status must be one of: ${ALLOWED_STATUSES.join(", ")}`,
+    });
+  }
+
+  if (hangers_placed !== undefined && !Number.isInteger(hangers_placed)) {
+    return res
+      .status(400)
+      .json({ status: "FAILED", message: "hangers_placed must be an integer" });
   }
 
   const { data: config, error: fetchError } = await supabaseAdmin
     .from("hanger_configs")
-    .select("placement_positions")
+    .select("id")
     .eq("id", id)
-    .single();
+    .maybeSingle();
 
-  if (fetchError || !config) {
+  if (fetchError) {
+    return res.status(500).json({ status: "FAILED", message: fetchError.message });
+  }
+
+  if (!config) {
     return res.status(404).json({ status: "FAILED", message: "Config not found" });
   }
 
-  const { error: updateError } = await supabaseAdmin
-    .from("hanger_configs")
-    .update({ status, synced_at: sync_timestamp, synced_by })
-    .eq("id", id);
-
-  if (updateError) {
-    return res.status(500).json({ status: "FAILED", message: updateError.message });
-  }
-
-  const { error: historyError } = await supabaseAdmin.from("hanger_placement_history").insert({
-    config_id: id,
-    hangers_placed,
-    placement_positions: config.placement_positions,
-    status: status === "SYNCED" ? "SUCCESS" : "ERROR",
-    revit_sync_timestamp: sync_timestamp,
-    synced_by,
+  // One transaction: the status update and the history row land together, so a
+  // failure can't leave a config marked SYNCED with no record of the placement.
+  const { error } = await supabaseAdmin.rpc("confirm_placement", {
+    p_config_id: id,
+    p_status: status,
+    p_hangers_placed: hangers_placed ?? null,
+    p_sync_timestamp: sync_timestamp ?? null,
+    p_synced_by: synced_by ?? null,
   });
 
-  if (historyError) {
-    return res.status(500).json({ status: "FAILED", message: historyError.message });
+  if (error) {
+    return res.status(500).json({ status: "FAILED", message: error.message });
   }
 
   return res.status(200).json({

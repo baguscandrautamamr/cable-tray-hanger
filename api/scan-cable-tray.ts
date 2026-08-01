@@ -1,11 +1,14 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import type { ScanPayload } from "../src/types";
+import { requireAddinKey } from "./_lib/auth";
 
 export default function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== "POST") {
     res.setHeader("Allow", "POST");
     return res.status(405).json({ status: "FAILED", message: "Method not allowed" });
   }
+
+  if (!requireAddinKey(req, res)) return;
 
   const payload = req.body as ScanPayload;
 
