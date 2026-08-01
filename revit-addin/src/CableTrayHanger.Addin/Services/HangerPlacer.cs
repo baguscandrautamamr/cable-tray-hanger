@@ -79,7 +79,7 @@ internal static class HangerPlacer
                 var firstOnThisTray = placed == 0;
 
                 dimensionProblem ??= ApplyDimensions(instance, tray.TrayWidthMm, hangerHeightMm, settings);
-                AlignToRun(document, instance, curve, normalized, point);
+                AlignToRun(document, instance, curve, normalized, point, settings);
                 placed++;
 
                 if (firstOnThisTray)
@@ -121,7 +121,8 @@ internal static class HangerPlacer
         FamilyInstance instance,
         Curve curve,
         double normalized,
-        XYZ point)
+        XYZ point,
+        AddinSettings settings)
     {
         var tangent = curve.ComputeDerivatives(normalized, true).BasisX;
         var heading = new XYZ(tangent.X, tangent.Y, 0);
