@@ -111,6 +111,11 @@ public sealed class SyncCommand : IExternalCommand
         // that a 600 tray really did get the 600 type.
         var typesUsed = new SortedSet<string>();
 
+        // Shared by every tray in the run: two trays meeting at a bend each
+        // schedule a hanger at the joint, and only their coordinates say that
+        // is one place rather than two.
+        var placedHangers = new PlacedHangers();
+
         // One transaction for the whole run: a half-placed model is worse than
         // an unplaced one, and a single undo should take all of it back.
         using (var transaction = new Transaction(document, $"Place {config.TotalHangers} hangers"))
@@ -132,7 +137,7 @@ public sealed class SyncCommand : IExternalCommand
                 typesUsed.Add($"{Math.Round(tray.TrayWidthMm)}mm → {symbol.Name}");
 
                 var outcome = HangerPlacer.Place(
-                    document, element, symbol, tray, config.HangerHeightMm, settings);
+                    document, element, symbol, tray, config.HangerHeightMm, settings, placedHangers);
 
                 placed += outcome.Placed;
                 failures.AddRange(outcome.Failures.Select(failure => $"{tray.CableTrayName}: {failure}"));
@@ -155,6 +160,14 @@ public sealed class SyncCommand : IExternalCommand
 
         var summary = $"Placed {placed} of {config.TotalHangers} hangers "
                       + $"across {resolved.Count} of {config.Trays.Count} cable trays.";
+
+        // Said plainly, because otherwise "placed 47 of 52" reads as five that
+        // went wrong rather than five that were never wanted.
+        if (placedHangers.Skipped > 0)
+        {
+            summary += $"\n\n{placedHangers.Skipped} of them were already served: where two trays "
+                       + "meet, the joint takes one hanger rather than one from each side.";
+        }
 
         if (config.HangerHeightMm is > 0)
         {

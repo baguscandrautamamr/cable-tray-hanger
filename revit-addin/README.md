@@ -117,6 +117,11 @@ Colours are mid-tones so the artwork survives both the light and dark Revit
   nearest tray centreline within 2 ft, and its position is the distance from
   that tray's start. Connector traversal would be exact; this is enough for
   straight runs and avoids guessing which of a fitting's two runs "owns" it.
+- **A joint gets one hanger.** Two hangers never stand closer than 300mm. Along
+  a single tray the web app enforces it; across trays the add-in does, because
+  the payload carries offsets rather than coordinates and only the model says
+  that the end of one run and the start of the next are the same place. The
+  summary dialog says how many positions were served this way.
 - **Hangers are placed level-based.** Face-based and work-plane-based hanger
   families will be rejected by Revit; those positions are counted as failures
   and listed in the summary dialog rather than skipped silently.

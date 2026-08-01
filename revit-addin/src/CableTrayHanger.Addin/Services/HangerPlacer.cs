@@ -12,6 +12,51 @@ internal sealed record PlacementOutcome(int Placed, IReadOnlyList<string> Failur
     public bool AllPlaced => Failures.Count == 0;
 }
 
+/// <summary>
+/// Where a hanger already stands in this sync, so two of them never end up
+/// inside each other.
+///
+/// Positions arrive from the web app measured along one tray at a time, and
+/// nothing in that payload says two trays meet: it carries lengths and offsets,
+/// not coordinates. So a bend built from two runs schedules the END hanger of
+/// one and the START hanger of the next at what is, in the model, the same
+/// point — and that is a collision only the add-in is in a position to see,
+/// because only the add-in knows where the points actually are.
+///
+/// The first hanger to claim a spot keeps it; a later position within the
+/// clearance is served by the hanger already there.
+/// </summary>
+internal sealed class PlacedHangers
+{
+    /// <summary>
+    /// How close two hangers may stand, in millimetres. Kept equal to
+    /// MIN_CLEARANCE_M in the web app's placement algorithm, which applies the
+    /// same rule to the positions it can compare — those along a single tray.
+    /// </summary>
+    private const double ClearanceMm = 300.0;
+
+    private readonly List<XYZ> _points = [];
+
+    private readonly double _clearanceFt =
+        UnitUtils.ConvertToInternalUnits(ClearanceMm, UnitTypeId.Millimeters);
+
+    /// <summary>Positions passed over because a hanger already stood there.</summary>
+    public int Skipped { get; private set; }
+
+    /// <summary>Takes the spot for a new hanger, or reports it as already taken.</summary>
+    public bool TryClaim(XYZ point)
+    {
+        if (_points.Any(existing => existing.DistanceTo(point) < _clearanceFt))
+        {
+            Skipped++;
+            return false;
+        }
+
+        _points.Add(point);
+        return true;
+    }
+}
+
 /// <summary>Places hanger family instances along a cable tray at positions the web app calculated.</summary>
 internal static class HangerPlacer
 {
@@ -22,6 +67,9 @@ internal static class HangerPlacer
     /// Parameters are written only onto instances created here. An existing
     /// hanger is never touched: its height may have been revised in Revit, and
     /// a later push covering a different tray must not undo that.
+    ///
+    /// `placedHangers` spans the whole sync rather than this tray, so the joint
+    /// two runs share gets one hanger instead of one from each side.
     /// </summary>
     public static PlacementOutcome Place(
         Document document,
@@ -29,7 +77,8 @@ internal static class HangerPlacer
         FamilySymbol symbol,
         ConfigTrayDto tray,
         double? hangerHeightMm,
-        AddinSettings settings)
+        AddinSettings settings,
+        PlacedHangers placedHangers)
     {
         if (CableTrayScanner.GetCurve(cableTray) is not { } curve)
         {
@@ -63,6 +112,13 @@ internal static class HangerPlacer
             // position a fraction past the end of the tray.
             var normalized = lengthFt <= 0 ? 0 : Math.Clamp(offsetFt / lengthFt, 0.0, 1.0);
             var point = curve.Evaluate(normalized, true);
+
+            // Not a failure: the position is served, by the hanger the tray on
+            // the other side of the joint already put there.
+            if (!placedHangers.TryClaim(point))
+            {
+                continue;
+            }
 
             try
             {
