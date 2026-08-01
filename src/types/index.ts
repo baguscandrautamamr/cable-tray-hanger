@@ -17,15 +17,39 @@ export interface HangerFamily {
 export interface Elbow {
   id?: number;
   name?: string;
+
+  /**
+   * The tray this fitting was matched to. `position_m` is measured along *that*
+   * tray, so without it a position is ambiguous once a scan covers more than
+   * one run. Optional only so a payload from an add-in older than this field
+   * still parses; such elbows cannot be attributed to a tray and are ignored.
+   */
+  cable_tray_id?: number;
+
+  /** Distance from the start of `cable_tray_id`, in metres. */
   position_m: number;
 }
 
 export interface ScanPayload {
+  /** The add-in's configured project name — see VITE_PROJECT_NAME. */
+  project_name: string;
   view_name: string;
   cable_trays: CableTray[];
   hanger_families: HangerFamily[];
   elbows: Elbow[];
   timestamp: string;
+}
+
+/** GET /api/latest-scan — the newest scan this user's add-in sent. */
+export interface ScanRecord {
+  id: string;
+  project_name: string;
+  view_name: string;
+  cable_trays: CableTray[];
+  hanger_families: HangerFamily[];
+  elbows: Elbow[];
+  scanned_at: string | null;
+  created_at: string;
 }
 
 export interface PlacementPosition {

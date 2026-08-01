@@ -3,6 +3,7 @@ import type {
   CreatedAddinApiKey,
   HangerConfigInput,
   HangerConfigResult,
+  ScanRecord,
 } from "../types";
 import { supabase } from "./supabaseClient";
 
@@ -14,7 +15,13 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "";
  * authenticate with the shared ADDIN_API_KEY, which is a server-side secret and
  * must never be shipped to the browser.
  */
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+async function request<T>(
+  path: string,
+  init?: RequestInit,
+  // Some 404s are an answer rather than a failure — "you have no scan yet" is
+  // a state the UI renders, not an error it reports.
+  options?: { notFoundAsNull?: boolean },
+): Promise<T> {
   const { data } = await supabase.auth.getSession();
   const token = data.session?.access_token;
 
@@ -30,6 +37,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       ...init?.headers,
     },
   });
+
+  if (res.status === 404 && options?.notFoundAsNull) {
+    return null as T;
+  }
 
   if (!res.ok) {
     const body = await res.text().catch(() => "");
@@ -69,6 +80,21 @@ function describeError(body: string): string {
   }
 
   return body || "(no response body)";
+}
+
+/**
+ * The most recent scan the add-in sent, or null when there is none yet. Carries
+ * its own `project_name`, which the form compares against VITE_PROJECT_NAME —
+ * a mismatch there is otherwise completely silent.
+ */
+export async function fetchLatestScan(): Promise<ScanRecord | null> {
+  const result = await request<{ scan: ScanRecord } | null>(
+    "/api/latest-scan",
+    undefined,
+    { notFoundAsNull: true },
+  );
+
+  return result?.scan ?? null;
 }
 
 export function submitHangerConfig(input: HangerConfigInput) {

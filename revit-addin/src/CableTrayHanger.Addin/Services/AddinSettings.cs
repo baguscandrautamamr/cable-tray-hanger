@@ -41,8 +41,17 @@ internal sealed class AddinSettings
     [JsonPropertyName("hangerFamilyKeyword")]
     public string HangerFamilyKeyword { get; set; } = "hanger";
 
+    /// <summary>
+    /// ProjectName counts: the server files a scan under it and rejects a
+    /// payload without one, and Sync Hangers polls by it. Leaving it out here
+    /// turned a blank field into a puzzling 400 from the server rather than the
+    /// "not configured yet" message that points at the Settings dialog.
+    /// </summary>
     [JsonIgnore]
-    public bool IsConfigured => !string.IsNullOrWhiteSpace(ApiBaseUrl) && !string.IsNullOrWhiteSpace(ApiKey);
+    public bool IsConfigured =>
+        !string.IsNullOrWhiteSpace(ApiBaseUrl)
+        && !string.IsNullOrWhiteSpace(ApiKey)
+        && !string.IsNullOrWhiteSpace(ProjectName);
 
     private static readonly JsonSerializerOptions FileJson = new() { WriteIndented = true };
 

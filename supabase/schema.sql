@@ -102,6 +102,41 @@ CREATE INDEX addin_api_keys_user_idx
 -- through /api/addin-keys. The anon key cannot read the hashes.
 ALTER TABLE addin_api_keys ENABLE ROW LEVEL SECURITY;
 
+-- What the add-in's "Scan Cable Tray" button sends. GET /api/latest-scan reads
+-- the newest row back so the config form can list the model's real trays and
+-- hanger families instead of hard-coded placeholders.
+CREATE TABLE cable_tray_scans (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
+  -- Owner of the API key the add-in authenticated with. NULL only for the
+  -- ADDIN_API_KEY environment fallback, which belongs to no account — such a
+  -- scan is unreachable from the web app by design.
+  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+
+  -- The add-in's configured project name, compared against the web app's
+  -- VITE_PROJECT_NAME so a mismatch is reported rather than silently yielding
+  -- an empty form.
+  project_name TEXT NOT NULL,
+  view_name TEXT NOT NULL DEFAULT '',
+
+  cable_trays JSONB NOT NULL,
+  hanger_families JSONB NOT NULL,
+  elbows JSONB NOT NULL,
+
+  -- When Revit took the scan, as opposed to when the row was written.
+  scanned_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX cable_tray_scans_user_idx
+  ON cable_tray_scans (user_id, created_at DESC);
+
+ALTER TABLE cable_tray_scans ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Users can view own scans"
+  ON cable_tray_scans FOR SELECT
+  USING (auth.uid() = user_id);
+
 -- Keep updated_at honest; nothing was maintaining it.
 CREATE OR REPLACE FUNCTION set_updated_at()
 RETURNS TRIGGER

@@ -28,12 +28,28 @@ internal sealed class ElbowDto
     public long? Id { get; set; }
     public string? Name { get; set; }
 
+    /// <summary>
+    /// The tray this fitting was matched to. PositionM is measured along *that*
+    /// tray, so without it the web app cannot tell which run an elbow belongs
+    /// to once a scan covers more than one.
+    /// </summary>
+    [JsonPropertyName("cable_tray_id")]
+    public long CableTrayId { get; set; }
+
+    /// <summary>Distance from the start of CableTrayId, in metres.</summary>
     [JsonPropertyName("position_m")]
     public double PositionM { get; set; }
 }
 
 internal sealed class ScanPayload
 {
+    /// <summary>
+    /// The configured project name. The server files the scan under it and
+    /// rejects a payload without one, because a scan under the wrong project is
+    /// invisible in the web app for a reason nobody can see.
+    /// </summary>
+    public string ProjectName { get; set; } = "";
+
     public string ViewName { get; set; } = "";
     public List<CableTrayDto> CableTrays { get; set; } = [];
     public List<HangerFamilyDto> HangerFamilies { get; set; } = [];
@@ -76,6 +92,7 @@ internal sealed class HealthDatabaseDto
     public bool Reachable { get; set; }
     public bool HangerConfigsTable { get; set; }
     public bool AddinApiKeysTable { get; set; }
+    public bool CableTrayScansTable { get; set; }
 }
 
 internal sealed class HealthApiKeyDto
