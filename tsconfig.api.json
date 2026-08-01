@@ -1,12 +1,25 @@
 {
+  /*
+   * Typechecks the serverless functions under api/.
+   *
+   * module/moduleResolution are "nodenext", not "bundler", because that is how
+   * Vercel actually runs these files: package.json sets "type": "module", so
+   * each function is compiled to ESM and loaded by Node, whose resolver
+   * requires an explicit file extension on every relative import.
+   *
+   * "bundler" resolution accepts extensionless specifiers — it assumes a
+   * bundler will resolve them — so it happily type-checked `from "./_lib/auth"`
+   * while every deployed function died at import with ERR_MODULE_NOT_FOUND,
+   * surfacing as Vercel's opaque FUNCTION_INVOCATION_FAILED. At "nodenext"
+   * that is a compile error (TS2835) instead of a production outage.
+   */
   "compilerOptions": {
     "target": "es2023",
     "lib": ["ES2023"],
-    "module": "esnext",
-    "moduleResolution": "bundler",
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
     "types": ["node"],
     "skipLibCheck": true,
-    "allowImportingTsExtensions": true,
     "verbatimModuleSyntax": true,
     "moduleDetection": "force",
     "noEmit": true,

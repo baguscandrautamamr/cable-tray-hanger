@@ -6,6 +6,7 @@ import type { HangerConfig } from "../types";
 import { supabase } from "../services/supabaseClient";
 import HistoryTable from "../components/HistoryTable";
 import AuthSection from "../components/AuthSection";
+import StatusAlert from "../components/StatusAlert";
 
 interface DashboardProps {
   session: Session | null;
@@ -14,15 +15,18 @@ interface DashboardProps {
 export default function Dashboard({ session }: DashboardProps) {
   const [configs, setConfigs] = useState<HangerConfig[]>([]);
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!session) {
       setConfigs([]);
+      setLoadError(null);
       return;
     }
 
     let cancelled = false;
     setLoading(true);
+    setLoadError(null);
 
     supabase
       .from("hanger_configs")
@@ -31,7 +35,14 @@ export default function Dashboard({ session }: DashboardProps) {
       .limit(20)
       .then(({ data, error }) => {
         if (cancelled) return;
-        if (!error && data) setConfigs(data as HangerConfig[]);
+        // A failed query used to render as an empty table, which reads exactly
+        // like "no configs yet" — the one state that needs a different action.
+        if (error) {
+          setLoadError(error.message);
+          setConfigs([]);
+        } else {
+          setConfigs((data ?? []) as HangerConfig[]);
+        }
         setLoading(false);
       });
 
@@ -70,6 +81,8 @@ export default function Dashboard({ session }: DashboardProps) {
       {session ? (
         loading ? (
           <p className="text-sm text-slate-500">Loading...</p>
+        ) : loadError ? (
+          <StatusAlert kind="failed" message={`Could not load your configurations: ${loadError}`} />
         ) : (
           <HistoryTable configs={configs} />
         )

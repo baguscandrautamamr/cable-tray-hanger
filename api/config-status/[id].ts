@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { requireAddinKey } from "../_lib/auth";
-import { resolveSupabaseAdmin } from "../_lib/supabaseAdmin";
+import { requireAddinKey } from "../_lib/auth.js";
+import { resolveSupabaseAdmin } from "../_lib/supabaseAdmin.js";
 
 /** Terminal states the add-in may report. Mirrors the CHECK in schema.sql. */
 const ALLOWED_STATUSES = ["SYNCED", "FAILED"];
