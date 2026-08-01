@@ -16,7 +16,11 @@ import type {
   HangerFamily,
   StatusAlertData,
 } from "../types";
-import { calculatePlacements, summarizePlacements } from "../services/placementAlgorithm";
+import {
+  MIN_SPACING_MM,
+  calculatePlacements,
+  summarizePlacements,
+} from "../services/placementAlgorithm";
 import { submitHangerConfig } from "../services/apiClient";
 import AuthSection from "./AuthSection";
 import PreviewTable from "./PreviewTable";
@@ -72,21 +76,24 @@ export default function HangerConfigForm({
     [cableTray],
   );
 
+  // A cleared or out-of-range spacing input would make calculatePlacements
+  // throw during render, so hold the preview empty until the value is usable.
+  const spacingValid = Number.isFinite(spacingMm) && spacingMm >= MIN_SPACING_MM;
+
   const positions = useMemo(() => {
-    if (!cableTray) return [];
+    if (!cableTray || !spacingValid) return [];
     return calculatePlacements(cableTray.length_m, spacingMm, elbows);
-  }, [cableTray, spacingMm, elbows]);
+  }, [cableTray, spacingValid, spacingMm, elbows]);
 
   const stats = useMemo(() => summarizePlacements(positions), [positions]);
 
   async function handlePush() {
-    if (!cableTray || !hangerFamilyName || !session) return;
+    if (!cableTray || !hangerFamilyName || !session || !spacingValid) return;
 
     setSubmitting(true);
     setAlert(null);
     try {
       const result = await submitHangerConfig({
-        user_id: session.user.id,
         project_name: projectName,
         cable_tray_id: cableTray.id,
         cable_tray_name: cableTray.name,
@@ -118,7 +125,9 @@ export default function HangerConfigForm({
     setAlert(null);
   }
 
-  const canPush = Boolean(session && cableTray && hangerFamilyName && !submitting);
+  const canPush = Boolean(
+    session && cableTray && hangerFamilyName && spacingValid && !submitting,
+  );
 
   return (
     <div className="flex flex-col gap-6">
@@ -182,9 +191,15 @@ export default function HangerConfigForm({
           onChange={(e) => setSpacingMm(Number(e.target.value))}
           className="w-40 rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-amber-400"
         />
-        <p className="text-xs text-slate-500">
-          Guideline spacing. Elbow positions are forced.
-        </p>
+        {spacingValid ? (
+          <p className="text-xs text-slate-500">
+            Guideline spacing. Elbow positions are forced.
+          </p>
+        ) : (
+          <p className="text-xs text-red-400">
+            Enter a spacing of at least {MIN_SPACING_MM}mm to preview placement.
+          </p>
+        )}
       </section>
 
       {/* 5. Placement Preview Stats */}

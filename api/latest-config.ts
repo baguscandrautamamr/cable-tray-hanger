@@ -1,4 +1,5 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
+import { requireAddinKey } from "./_lib/auth";
 import { supabaseAdmin } from "./_lib/supabaseAdmin";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -6,6 +7,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     res.setHeader("Allow", "GET");
     return res.status(405).json({ status: "FAILED", message: "Method not allowed" });
   }
+
+  if (!requireAddinKey(req, res)) return;
 
   const { project, status = "PENDING" } = req.query;
 

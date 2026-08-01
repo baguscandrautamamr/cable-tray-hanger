@@ -34,7 +34,8 @@ export interface PlacementPosition {
 }
 
 export interface HangerConfigInput {
-  user_id: string;
+  // No user_id: the server takes the owner from the bearer token, so a client
+  // can't attribute a config to someone else.
   project_name: string;
   cable_tray_id: number;
   cable_tray_name: string;

@@ -1,0 +1,34 @@
+name: CI
+
+# No branch filter: the default branch of this repo is not `main`, and every
+# branch should be checked anyway. The concurrency group below keeps a PR from
+# running the same commit twice.
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run lint
+
+      - run: npm run test
+
+      - run: npm run typecheck:api
+
+      # Runs tsc -b over src/ too, so this covers the frontend typecheck.
+      - run: npm run build
