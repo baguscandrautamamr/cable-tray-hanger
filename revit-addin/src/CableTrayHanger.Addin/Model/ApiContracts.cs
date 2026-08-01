@@ -15,6 +15,29 @@ internal sealed class CableTrayDto
 
     [JsonPropertyName("length_m")]
     public double LengthM { get; set; }
+
+    /// <summary>
+    /// Tray width in mm. The hanger has to span the tray, so this drives the
+    /// width parameter on every instance placed on this run rather than being
+    /// typed into the web app a second time.
+    /// </summary>
+    [JsonPropertyName("width_mm")]
+    public double WidthMm { get; set; }
+
+    /// <summary>
+    /// Hangers of the configured family already on this tray. The web app
+    /// leaves such a tray out of a new config, so a height revised in Revit is
+    /// never overwritten by a later push.
+    /// </summary>
+    [JsonPropertyName("existing_hanger_count")]
+    public int ExistingHangerCount { get; set; }
+
+    /// <summary>
+    /// Height read off those hangers when they agree on one; null when there
+    /// are none or they disagree.
+    /// </summary>
+    [JsonPropertyName("existing_hanger_height_mm")]
+    public double? ExistingHangerHeightMm { get; set; }
 }
 
 internal sealed class HangerFamilyDto
@@ -65,14 +88,39 @@ internal sealed class PlacementPositionDto
     public string Reason { get; set; } = "";
 }
 
-/// <summary>Response of GET /api/latest-config.</summary>
+/// <summary>One cable tray inside a config, with its placement worked out.</summary>
+internal sealed class ConfigTrayDto
+{
+    public string CableTrayId { get; set; } = "";
+    public string CableTrayName { get; set; } = "";
+
+    [JsonPropertyName("cable_tray_length_m")]
+    public double CableTrayLengthM { get; set; }
+
+    /// <summary>Copied from the tray, so the hanger can be sized to match it.</summary>
+    [JsonPropertyName("tray_width_mm")]
+    public double TrayWidthMm { get; set; }
+
+    public List<PlacementPositionDto> PlacementPositions { get; set; } = [];
+}
+
+/// <summary>
+/// Response of GET /api/latest-config. A config covers every tray in a scan,
+/// not one picked from a dropdown, so the work arrives as a list.
+/// </summary>
 internal sealed class LatestConfigDto
 {
     public string ConfigId { get; set; } = "";
-    public string CableTrayId { get; set; } = "";
-    public string CableTrayName { get; set; } = "";
     public string HangerFamilyName { get; set; } = "";
-    public List<PlacementPositionDto> PlacementPositions { get; set; } = [];
+
+    /// <summary>
+    /// Written onto the instances this sync creates. Never applied to hangers
+    /// already in the model — those keep whatever they were revised to.
+    /// </summary>
+    [JsonPropertyName("hanger_height_mm")]
+    public double? HangerHeightMm { get; set; }
+
+    public List<ConfigTrayDto> Trays { get; set; } = [];
     public int TotalHangers { get; set; }
 }
 

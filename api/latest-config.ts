@@ -58,12 +58,24 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(404).json({ status: "NOT_FOUND", message: "No pending config found" });
   }
 
+  // `trays` is the shape a config has had since it started covering a whole
+  // scan. Rows from the single-tray version are folded into the same shape so
+  // the add-in only ever has one thing to read.
+  const trays = data.trays ?? [
+    {
+      cable_tray_id: data.cable_tray_id,
+      cable_tray_name: data.cable_tray_name,
+      cable_tray_length_m: data.cable_tray_length_m,
+      tray_width_mm: 0,
+      placement_positions: data.placement_positions ?? [],
+    },
+  ];
+
   return res.status(200).json({
     config_id: data.id,
-    cable_tray_id: data.cable_tray_id,
-    cable_tray_name: data.cable_tray_name,
     hanger_family_name: data.hanger_family_name,
-    placement_positions: data.placement_positions,
+    hanger_height_mm: data.hanger_height_mm,
+    trays,
     total_hangers: data.total_hangers_calculated,
   });
 }

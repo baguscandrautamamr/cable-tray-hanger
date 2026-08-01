@@ -16,14 +16,20 @@ internal sealed record PlacementOutcome(int Placed, IReadOnlyList<string> Failur
 internal static class HangerPlacer
 {
     /// <summary>
-    /// Places one instance per position. The caller owns the transaction, so a
-    /// partial failure can be rolled back as a unit.
+    /// Places one instance per position and sizes it to the tray. The caller
+    /// owns the transaction, so a partial failure can be rolled back as a unit.
+    ///
+    /// Parameters are written only onto instances created here. An existing
+    /// hanger is never touched: its height may have been revised in Revit, and
+    /// a later push covering a different tray must not undo that.
     /// </summary>
     public static PlacementOutcome Place(
         Document document,
         Element cableTray,
         FamilySymbol symbol,
-        IReadOnlyList<PlacementPositionDto> positions)
+        ConfigTrayDto tray,
+        double? hangerHeightMm,
+        AddinSettings settings)
     {
         if (CableTrayScanner.GetCurve(cableTray) is not { } curve)
         {
@@ -45,7 +51,7 @@ internal static class HangerPlacer
         var placed = 0;
         var failures = new List<string>();
 
-        foreach (var position in positions)
+        foreach (var position in tray.PlacementPositions)
         {
             var offsetFt = UnitUtils.ConvertToInternalUnits(position.PosM, UnitTypeId.Meters);
 
@@ -66,6 +72,7 @@ internal static class HangerPlacer
                     continue;
                 }
 
+                ApplyDimensions(instance, tray.TrayWidthMm, hangerHeightMm, settings);
                 placed++;
             }
             catch (Autodesk.Revit.Exceptions.ApplicationException ex)
@@ -77,6 +84,31 @@ internal static class HangerPlacer
         }
 
         return new PlacementOutcome(placed, failures);
+    }
+
+    /// <summary>
+    /// Sizes a freshly created hanger: width from the tray it spans, height
+    /// from the config. A parameter the family does not have is skipped
+    /// silently — every office names these differently, which is why both names
+    /// are settings rather than constants.
+    /// </summary>
+    private static void ApplyDimensions(
+        FamilyInstance instance,
+        double trayWidthMm,
+        double? hangerHeightMm,
+        AddinSettings settings)
+    {
+        if (trayWidthMm > 0 && !string.IsNullOrWhiteSpace(settings.TrayWidthParameter))
+        {
+            ParameterUnits.TrySetMillimetres(
+                instance.LookupParameter(settings.TrayWidthParameter), trayWidthMm);
+        }
+
+        if (hangerHeightMm is > 0 && !string.IsNullOrWhiteSpace(settings.HangerHeightParameter))
+        {
+            ParameterUnits.TrySetMillimetres(
+                instance.LookupParameter(settings.HangerHeightParameter), hangerHeightMm.Value);
+        }
     }
 
     /// <summary>Finds the family type the web app named. Falls back to any type in a matching family.</summary>

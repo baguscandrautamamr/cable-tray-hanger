@@ -97,6 +97,10 @@ export async function fetchLatestScan(): Promise<ScanRecord | null> {
   return result?.scan ?? null;
 }
 
+/**
+ * Turns a scan into a pending placement covering every tray in it. The trays
+ * themselves are not sent — the server reads them from the scan.
+ */
 export function submitHangerConfig(input: HangerConfigInput) {
   return request<HangerConfigResult>("/api/hanger-config", {
     method: "POST",

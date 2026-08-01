@@ -7,6 +7,28 @@ export interface CableTray {
   name: string;
   level: string;
   length_m: number;
+
+  /**
+   * Tray width in mm. The hanger has to span the tray, so this drives the
+   * width parameter on every instance placed on this run — nobody should be
+   * typing it in twice.
+   */
+  width_mm: number;
+
+  /**
+   * Hangers of the configured family already sitting on this tray, as found in
+   * the model at scan time. A tray that has them is left out of a new config:
+   * their height may have been revised in Revit, and re-placing would discard
+   * that. Absent on scans from an add-in build older than this field.
+   */
+  existing_hanger_count?: number;
+
+  /**
+   * Height read off those existing hangers, when they agree on one. Null when
+   * there are none, or when they disagree — which is worth showing as-is
+   * rather than averaging into a number that matches no actual hanger.
+   */
+  existing_hanger_height_mm?: number | null;
 }
 
 export interface HangerFamily {
@@ -57,33 +79,58 @@ export interface PlacementPosition {
   reason: PlacementReason;
 }
 
-export interface HangerConfigInput {
-  // No user_id: the server takes the owner from the bearer token, so a client
-  // can't attribute a config to someone else.
-  project_name: string;
+/** One tray inside a config, with the placement worked out for it. */
+export interface ConfigTray {
   cable_tray_id: number;
   cable_tray_name: string;
   cable_tray_length_m: number;
+
+  /** Copied from the tray, so the add-in can size the hanger to match. */
+  tray_width_mm: number;
+
+  placement_positions: PlacementPosition[];
+}
+
+export interface HangerConfigInput {
+  /**
+   * The scan to build this config from. Everything else about the trays — the
+   * project name, which trays there are, their lengths, widths and elbows — is
+   * read server-side from this scan rather than sent by the client, so none of
+   * it can be tampered with and the project name can never disagree.
+   */
+  scan_id: string;
+
   hanger_family_name: string;
   spacing_mm: number;
-  elbows: Elbow[];
-  timestamp: string;
+
+  /** Written onto hangers the add-in creates. */
+  hanger_height_mm: number;
 }
 
 export interface HangerConfigResult {
   status: "SUCCESS" | "FAILED";
   config_id: string;
-  placement_positions: PlacementPosition[];
+  project_name: string;
+  trays: ConfigTray[];
   total_hangers: number;
+  /** Trays left out because they already carry hangers. */
+  skipped_trays: { cable_tray_name: string; existing_hanger_count: number }[];
   message: string;
 }
 
 export interface HangerConfig {
   id: string;
   project_name: string;
-  cable_tray_id: string;
-  cable_tray_name: string;
-  cable_tray_length_m: number;
+
+  /** Null on rows written by the single-tray version of the app. */
+  trays: ConfigTray[] | null;
+  hanger_height_mm: number | null;
+
+  /** Superseded by `trays`; still populated on older rows. */
+  cable_tray_id: string | null;
+  cable_tray_name: string | null;
+  cable_tray_length_m: number | null;
+
   hanger_family_name: string;
   spacing_mm: number;
   elbows: Elbow[];
