@@ -1,3 +1,4 @@
+using System;
 using Autodesk.Revit.Attributes;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
@@ -10,6 +11,22 @@ namespace CableTrayHanger.Addin.Commands;
 public sealed class ScanCommand : IExternalCommand
 {
     public Result Execute(ExternalCommandData commandData, ref string message, ElementSet elements)
+    {
+        // Anything unhandled here becomes Revit's "Command Failure for External
+        // Command" dialog, which names no cause. Report what actually went
+        // wrong instead.
+        try
+        {
+            return Run(commandData, ref message);
+        }
+        catch (Exception ex)
+        {
+            message = $"{ex.GetType().Name}: {ex.Message}";
+            return Result.Failed;
+        }
+    }
+
+    private static Result Run(ExternalCommandData commandData, ref string message)
     {
         var uiDocument = commandData.Application.ActiveUIDocument;
         if (uiDocument?.Document is not { } document)

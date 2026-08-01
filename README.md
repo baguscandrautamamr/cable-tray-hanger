@@ -190,17 +190,17 @@ differently. Blank switches that write off.
 
 ### Finding the hanger family
 
-Revit has no hanger category — a hanger is often built as a *Cable Tray
-Fitting*, indistinguishable from an elbow except by name. The add-in therefore
-narrows the family list with a keyword (**Hanger family keyword**, `hang` by
-default, which matches Hanger, Hangers and HANGING alike).
+Revit has no hanger category. A cable tray hanger is built as a **Cable Tray
+Fitting**, so that is what the dropdown lists — every other loadable family in
+the project is irrelevant, and listing them buried the one entry anybody wanted
+under hundreds of doors and pipe fittings.
 
-A keyword that matches nothing does **not** empty the dropdown: the add-in
-sends every loaded family instead and flags that it did, and the web app says
-which keyword failed. Each entry shows its Revit category, so a hanger sitting
-among the fittings can be picked out. Only a real keyword match is used to
-recognise hangers already in the model — falling back there would class every
-fitting as a hanger.
+Within that category the **Hanger family keyword** narrows further (`hang` by
+default, which matches Hanger, Hangers and HANGING alike). A keyword that
+matches nothing does **not** empty the dropdown: the add-in sends every cable
+tray fitting family instead and flags that it did, and the web app names the
+keyword that failed. Only a real keyword match is used to recognise hangers
+already in the model — falling back there would class every elbow as a hanger.
 
 ## Deploy
 

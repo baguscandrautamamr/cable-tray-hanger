@@ -127,7 +127,7 @@ internal static class HangerPlacer
                    s.Family.Name.Contains(familyName, StringComparison.OrdinalIgnoreCase));
     }
 
-    /// <summary>Resolves the tray id the web app stored (a Revit ElementId, sent as a string).</summary>
-    public static Element? FindCableTray(Document document, string cableTrayId) =>
-        long.TryParse(cableTrayId, out var raw) ? document.GetElement(new ElementId(raw)) : null;
+    /// <summary>Resolves the tray id the web app stored (a Revit ElementId).</summary>
+    public static Element? FindCableTray(Document document, long cableTrayId) =>
+        cableTrayId > 0 ? document.GetElement(new ElementId(cableTrayId)) : null;
 }

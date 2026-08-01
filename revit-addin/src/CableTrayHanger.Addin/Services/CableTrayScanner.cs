@@ -239,35 +239,39 @@ internal static class CableTrayScanner
     /// <summary>
     /// The families offered in the web app's Hanger Family dropdown.
     ///
-    /// The keyword narrows the list, but it must never empty it. A hanger
-    /// family called "ACT_E_SUPPORT HANGING CABEL TRAY" does not contain
-    /// "hanger", and a keyword saved before the family was renamed goes on
-    /// matching nothing — either way the dropdown read "No hanger families
-    /// scanned yet" with no way forward, and nothing in the model was wrong.
+    /// Restricted to Cable Tray Fittings, which is what a cable tray hanger is
+    /// built as. Listing every loadable family in the model put hundreds of
+    /// doors and pipe fittings in front of the one entry anybody wanted.
     ///
-    /// So a keyword that matches nothing falls back to every loaded family and
-    /// says so, which leaves the person a list to pick from instead of a dead
-    /// end. Only the narrowed match is used to recognise hangers already in the
-    /// model — falling back there would class every fitting as a hanger.
+    /// Within that, the keyword narrows further — but it must never empty the
+    /// list. A family called "ACT_E_SUPPORT HANGING CABEL TRAY" does not
+    /// contain "hanger", and a keyword saved before the family was renamed goes
+    /// on matching nothing; either way the dropdown read "no hanger families"
+    /// while the family sat in the model. A keyword that matches nothing
+    /// therefore falls back to every cable tray fitting family and says so.
+    ///
+    /// Only a real keyword match is used to recognise hangers already in the
+    /// model — falling back there would class every elbow as a hanger.
     /// </summary>
     private static (List<HangerFamilyDto> Families, bool MatchedKeyword) FindHangerFamilies(
         Document document,
         string keyword)
     {
-        var all = new FilteredElementCollector(document)
+        var candidates = new FilteredElementCollector(document)
+            .OfCategory(BuiltInCategory.OST_CableTrayFitting)
             .OfClass(typeof(FamilySymbol))
             .OfType<FamilySymbol>()
             .Where(symbol => symbol.Family is not null)
             .ToList();
 
         var matched = string.IsNullOrWhiteSpace(keyword)
-            ? all
-            : all.Where(symbol =>
+            ? candidates
+            : candidates.Where(symbol =>
                 symbol.Family.Name.Contains(keyword, StringComparison.OrdinalIgnoreCase)).ToList();
 
         var matchedKeyword = matched.Count > 0;
 
-        return (Describe(matchedKeyword ? matched : all), matchedKeyword);
+        return (Describe(matchedKeyword ? matched : candidates), matchedKeyword);
     }
 
     /// <summary>

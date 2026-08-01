@@ -197,22 +197,23 @@ export default function HangerConfigForm({
         <StatusAlert
           kind="pending"
           message={
-            "The scan found no families at all in the model, so there is nothing to place. " +
-            "Load the hanger family into the project, then scan again."
+            "No Cable Tray Fitting families are loaded in this project, so there is nothing to " +
+            "place. Load the hanger family, then scan again."
           }
         />
       )}
 
-      {/* The keyword matched nothing, so the list below is every loaded family
-          rather than a narrowed one. Saying so beats an empty dropdown. */}
-      {scan && scan.hanger_families_matched_keyword === false && (
+      {/* The keyword matched nothing, so the list below is every cable tray
+          fitting rather than a narrowed one. Saying so beats an empty dropdown. */}
+      {scan && scan.hanger_families_matched_keyword === false && scan.hanger_families.length > 0 && (
         <StatusAlert
           kind="pending"
           message={
             `No family name contains "${scan.hanger_family_keyword}", so all ` +
-            `${scan.hanger_families.length} loaded families are listed below instead of just the ` +
-            "hangers. Pick yours — or set a keyword that matches it in the add-in's Settings, " +
-            "which also lets the add-in recognise hangers already in the model and leave them alone."
+            `${scan.hanger_families.length} Cable Tray Fitting families are listed below rather ` +
+            "than just the hangers. Pick yours — or set a keyword that matches it in the add-in's " +
+            "Settings, which is also how the add-in recognises hangers already in the model and " +
+            "leaves them alone."
           }
         />
       )}
@@ -291,7 +292,9 @@ export default function HangerConfigForm({
           className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-amber-400"
         >
           <option value="">
-            {hangerFamilies.length ? "Select hanger family..." : "No families scanned yet"}
+            {hangerFamilies.length
+              ? "Select hanger family..."
+              : "No Cable Tray Fitting families scanned yet"}
           </option>
           {hangerFamilies.map((f) => (
             <option key={f.name} value={f.name}>
@@ -302,8 +305,8 @@ export default function HangerConfigForm({
           ))}
         </select>
         <p className="text-xs text-amber-400">
-          Auto-detected from project. The category is shown because a hanger built as a cable tray
-          fitting looks like an elbow by name alone.
+          Cable Tray Fitting families loaded in this project — that is what a cable tray hanger is
+          built as.
         </p>
       </section>
 
