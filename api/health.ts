@@ -34,6 +34,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     reachable: false,
     hanger_configs_table: false,
     addin_api_keys_table: false,
+    cable_tray_scans_table: false,
   };
 
   const apiKey = {
@@ -57,6 +58,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         .select("id", { count: "exact", head: true });
       database.addin_api_keys_table = !keys.error;
       database.reachable ||= !keys.error;
+
+      const scans = await supabaseAdmin
+        .from("cable_tray_scans")
+        .select("id", { count: "exact", head: true });
+      database.cable_tray_scans_table = !scans.error;
+      database.reachable ||= !scans.error;
 
       if (apiKey.provided && database.addin_api_keys_table) {
         const { data } = await supabaseAdmin
@@ -85,7 +92,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (apiKey.valid) apiKey.label = "ADDIN_API_KEY environment variable";
   }
 
-  const ok = missing.length === 0 && database.hanger_configs_table && database.addin_api_keys_table;
+  const ok =
+    missing.length === 0 &&
+    database.hanger_configs_table &&
+    database.addin_api_keys_table &&
+    database.cable_tray_scans_table;
 
   const hints: string[] = [];
   if (missing.length > 0) {
@@ -98,6 +109,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (!database.hanger_configs_table) hints.push("Run supabase/schema.sql in the Supabase SQL editor.");
     if (!database.addin_api_keys_table) {
       hints.push("Run supabase/migrations/0002-addin-api-keys.sql in the Supabase SQL editor.");
+    }
+    if (!database.cable_tray_scans_table) {
+      hints.push(
+        "Run supabase/migrations/0003-cable-tray-scans.sql in the Supabase SQL editor — " +
+          "without it, Scan Cable Tray has nowhere to store a scan.",
+      );
     }
   }
   if (apiKey.provided && !apiKey.valid && ok) {

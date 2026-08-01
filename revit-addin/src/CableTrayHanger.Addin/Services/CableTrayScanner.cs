@@ -33,6 +33,7 @@ internal static class CableTrayScanner
 
         return new ScanPayload
         {
+            ProjectName = settings.ProjectName,
             ViewName = view.Name,
             CableTrays = trays.Select(tray => ToDto(document, tray)).ToList(),
             Elbows = FindElbows(trays, fittings),
@@ -57,10 +58,14 @@ internal static class CableTrayScanner
     }
 
     /// <summary>
-    /// Assigns each fitting to the nearest tray and records how far along that
-    /// tray it sits. Connector traversal would be exact, but a fitting's
-    /// connectors point at the runs on either side rather than at one owning
-    /// tray, and the web app only needs a distance along a single run.
+    /// Assigns each fitting to the nearest tray and records which tray that was
+    /// plus how far along it the fitting sits. Connector traversal would be
+    /// exact, but a fitting's connectors point at the runs on either side rather
+    /// than at one owning tray, and the web app only needs a distance along a
+    /// single run.
+    ///
+    /// The owning tray has to travel with the position: a scan usually covers
+    /// several runs, and 4.2m means nothing without saying 4.2m along *what*.
     /// </summary>
     private static List<ElbowDto> FindElbows(IReadOnlyCollection<CableTray> trays, IEnumerable<FamilyInstance> fittings)
     {
@@ -73,6 +78,7 @@ internal static class CableTrayScanner
                 continue;
             }
 
+            CableTray? bestTray = null;
             Curve? bestCurve = null;
             var bestDistance = double.MaxValue;
 
@@ -88,10 +94,11 @@ internal static class CableTrayScanner
                 {
                     bestDistance = projected.Distance;
                     bestCurve = curve;
+                    bestTray = tray;
                 }
             }
 
-            if (bestCurve is null || bestDistance > FittingToTrayToleranceFt)
+            if (bestCurve is null || bestTray is null || bestDistance > FittingToTrayToleranceFt)
             {
                 continue;
             }
@@ -103,11 +110,12 @@ internal static class CableTrayScanner
             {
                 Id = fitting.Id.Value,
                 Name = fitting.Name,
+                CableTrayId = bestTray.Id.Value,
                 PositionM = UnitUtils.ConvertFromInternalUnits(alongFt, UnitTypeId.Meters),
             });
         }
 
-        return elbows.OrderBy(e => e.PositionM).ToList();
+        return elbows.OrderBy(e => e.CableTrayId).ThenBy(e => e.PositionM).ToList();
     }
 
     /// <summary>

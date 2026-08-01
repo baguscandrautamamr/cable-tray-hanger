@@ -73,8 +73,9 @@ not tied to a user and is therefore *not* scoped to one account's configs.
 ## Database
 
 Run `supabase/schema.sql` in the Supabase SQL editor to create the
-`hanger_configs`, `hanger_placement_history` and `addin_api_keys` tables with
-their RLS policies, constraints and the `confirm_placement` function. Then
+`hanger_configs`, `hanger_placement_history`, `addin_api_keys` and
+`cable_tray_scans` tables with their RLS policies, constraints and the
+`confirm_placement` function. Then
 enable email/password auth under **Authentication → Providers**.
 
 For a project already running an earlier schema, apply the migrations in order
@@ -84,6 +85,7 @@ instead:
 |---|---|
 | `supabase/migrations/0001-hardening.sql` | `TIMESTAMPTZ` columns, status/spacing constraints, `updated_at` trigger, `confirm_placement` |
 | `supabase/migrations/0002-addin-api-keys.sql` | `addin_api_keys` table for keys generated in the web app |
+| `supabase/migrations/0003-cable-tray-scans.sql` | `cable_tray_scans` table, so the add-in's scan reaches the config form |
 
 ## Commands
 
@@ -105,7 +107,8 @@ endpoint the browser calls takes the user's Supabase session token.
 | Endpoint | Auth | Purpose |
 |---|---|---|
 | `GET /api/health` | none | Reports what is configured — see Troubleshooting |
-| `POST /api/scan-cable-tray` | `x-api-key` | Receive scan data from the Revit add-in |
+| `POST /api/scan-cable-tray` | `x-api-key` | Store a scan from the Revit add-in |
+| `GET /api/latest-scan` | `Authorization: Bearer <supabase access token>` | Newest scan for this user, read by the config form |
 | `POST /api/hanger-config` | `Authorization: Bearer <supabase access token>` | Save a config and calculate hanger placement |
 | `GET /api/latest-config` | `x-api-key` | Add-in polls this for a pending config |
 | `PATCH /api/config-status/:id` | `x-api-key` | Add-in confirms placement after sync |
@@ -149,14 +152,21 @@ connection** button calls exactly this.
 
 The response contains only booleans — never a value, a URL or a key.
 
-## Known gaps
+## The Revit → web → Revit loop
 
-`POST /api/scan-cable-tray` validates and acknowledges the add-in's payload but
-does not store it, so the config form still lists the placeholder trays and
-hanger families in `src/components/HangerConfigForm.tsx`. Closing the
-Revit → web loop needs a table for scan results, a read endpoint for the
-frontend, and the form switched over from those constants. Until then the
-add-in's **Scan Cable Tray** button has no visible effect in the browser.
+1. **Scan Cable Tray** in Revit posts the active view's trays, elbows and
+   hanger families to `POST /api/scan-cable-tray`, which stores them against
+   the account that owns the API key.
+2. The config form reads the newest scan from `GET /api/latest-scan` and lists
+   the model's real trays and families. An elbow carries the id of the tray it
+   was matched to, so selecting a tray shows only its own elbows.
+3. Pushing a config saves it as `PENDING` under the web app's
+   `VITE_PROJECT_NAME`.
+4. **Sync Hangers** in Revit polls `GET /api/latest-config` for the add-in's
+   **Project name**, places the hangers, and reports back.
+
+Steps 3 and 4 only meet if those two names are identical, so the form compares
+the scan's project name against its own and says so when they differ.
 
 ## Deploy
 

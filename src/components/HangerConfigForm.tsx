@@ -8,46 +8,19 @@ import {
   Wrench,
   X,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
-import type {
-  CableTray,
-  Elbow,
-  HangerFamily,
-  StatusAlertData,
-} from "../types";
+import type { ScanRecord, StatusAlertData } from "../types";
 import {
   MIN_SPACING_MM,
   calculatePlacements,
   summarizePlacements,
 } from "../services/placementAlgorithm";
-import { submitHangerConfig } from "../services/apiClient";
+import { fetchLatestScan, submitHangerConfig } from "../services/apiClient";
 import AuthSection from "./AuthSection";
 import PreviewTable from "./PreviewTable";
 import StatusAlert from "./StatusAlert";
 import VisualizationCanvas from "./VisualizationCanvas";
-
-// Placeholder data until Phase 2 add-in scan (POST /api/scan-cable-tray) is wired up.
-const SAMPLE_CABLE_TRAYS: CableTray[] = [
-  { id: 123456, name: "CT-L1-RUN-01", level: "L2", length_m: 45.5 },
-  { id: 123457, name: "CT-L1-RUN-02", level: "L2", length_m: 30.2 },
-];
-
-const SAMPLE_HANGER_FAMILIES: HangerFamily[] = [
-  { name: "Hanger - Rod 10mm - Steel - Clamp", type_count: 5 },
-  { name: "Rod Hanger Type A", type_count: 2 },
-];
-
-const SAMPLE_ELBOWS_BY_TRAY: Record<number, Elbow[]> = {
-  123456: [
-    { position_m: 1.48 },
-    { position_m: 4.2 },
-    { position_m: 12.8 },
-    { position_m: 22.3 },
-    { position_m: 35.6 },
-  ],
-  123457: [{ position_m: 6.5 }, { position_m: 18.0 }],
-};
 
 interface HangerConfigFormProps {
   session: Session | null;
@@ -60,20 +33,66 @@ export default function HangerConfigForm({
   projectName,
   onSaved,
 }: HangerConfigFormProps) {
+  const [scan, setScan] = useState<ScanRecord | null>(null);
+  const [scanLoading, setScanLoading] = useState(false);
+  const [scanError, setScanError] = useState<string | null>(null);
+
   const [cableTrayId, setCableTrayId] = useState<number | "">("");
   const [hangerFamilyName, setHangerFamilyName] = useState("");
   const [spacingMm, setSpacingMm] = useState(1500);
   const [alert, setAlert] = useState<StatusAlertData | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
+  // The trays and families come from the model, not from this file. Before the
+  // scan was stored server-side this form listed hard-coded placeholders, so
+  // pressing "Scan Cable Tray" in Revit changed nothing here.
+  useEffect(() => {
+    if (!session) {
+      setScan(null);
+      setScanError(null);
+      return;
+    }
+
+    let cancelled = false;
+    setScanLoading(true);
+    setScanError(null);
+
+    fetchLatestScan()
+      .then((latest) => {
+        if (cancelled) return;
+        setScan(latest);
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        setScanError(err instanceof Error ? err.message : "Could not load the latest scan");
+      })
+      .finally(() => {
+        if (!cancelled) setScanLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [session]);
+
+  const cableTrays = useMemo(() => scan?.cable_trays ?? [], [scan]);
+  const hangerFamilies = useMemo(() => scan?.hanger_families ?? [], [scan]);
+
   const cableTray = useMemo(
-    () => SAMPLE_CABLE_TRAYS.find((ct) => ct.id === cableTrayId) ?? null,
-    [cableTrayId],
+    () => cableTrays.find((ct) => ct.id === cableTrayId) ?? null,
+    [cableTrays, cableTrayId],
   );
 
+  // position_m is measured along the tray the add-in matched the fitting to, so
+  // an elbow is only meaningful next to that tray. Elbows from an add-in build
+  // that did not record cable_tray_id cannot be attributed and are left out
+  // rather than applied to the wrong run.
   const elbows = useMemo(
-    () => (cableTray ? SAMPLE_ELBOWS_BY_TRAY[cableTray.id] ?? [] : []),
-    [cableTray],
+    () =>
+      cableTray
+        ? (scan?.elbows ?? []).filter((elbow) => elbow.cable_tray_id === cableTray.id)
+        : [],
+    [scan, cableTray],
   );
 
   // A cleared or out-of-range spacing input would make calculatePlacements
@@ -129,10 +148,68 @@ export default function HangerConfigForm({
     session && cableTray && hangerFamilyName && spacingValid && !submitting,
   );
 
+  // The add-in polls for configs by its own project name, so a config pushed
+  // under a different one is never collected and Sync Hangers just reports
+  // "No pending configuration". Nothing else in the system notices.
+  const projectMismatch = scan !== null && scan.project_name !== projectName;
+
   return (
     <div className="flex flex-col gap-6">
       {/* 1. Auth Section */}
       <AuthSection session={session} />
+
+      {/* 1b. Where the model data came from, and what is wrong with it */}
+      {session && scanLoading && (
+        <p className="text-sm text-slate-500">Loading the latest scan from Revit...</p>
+      )}
+
+      {session && scanError && (
+        <StatusAlert kind="failed" message={`Could not load the latest scan: ${scanError}`} />
+      )}
+
+      {session && !scanLoading && !scanError && !scan && (
+        <StatusAlert
+          kind="info"
+          message={
+            "No scan from Revit yet. Open a view showing the cable tray run and press " +
+            "Scan Cable Tray on the Cable Tray Hanger ribbon, then reload this page."
+          }
+        />
+      )}
+
+      {scan && (
+        <p className="text-xs text-slate-500">
+          Scanned from <span className="text-slate-300">{scan.view_name || "an unnamed view"}</span>{" "}
+          in <span className="text-slate-300">{scan.project_name}</span> —{" "}
+          {scan.cable_trays.length} trays, {scan.elbows.length} elbows,{" "}
+          {scan.hanger_families.length} hanger families.
+        </p>
+      )}
+
+      {projectMismatch && (
+        <StatusAlert
+          kind="failed"
+          message={
+            `Project name mismatch. This scan came from "${scan.project_name}", but the web app ` +
+            `is set to "${projectName}". A config pushed from here is filed under ` +
+            `"${projectName}", which the add-in never polls for — Sync Hangers would keep ` +
+            "reporting \"No pending configuration\". Set VITE_PROJECT_NAME to " +
+            `"${scan.project_name}" and redeploy, or change Project name in the add-in's Settings.`
+          }
+        />
+      )}
+
+      {scan && scan.hanger_families.length === 0 && (
+        <StatusAlert
+          kind="pending"
+          message={
+            "The scan found no hanger families in the model, so there is nothing to place. " +
+            "Revit has no hanger category, so the add-in matches on a name substring — widen " +
+            "or clear \"Hanger family keyword\" in its Settings dialog, or load a hanger family " +
+            "into the project, then scan again."
+          }
+        />
+      )}
 
       {/* 2. Cable Tray Selection */}
       <section className="flex flex-col gap-2">
@@ -145,10 +222,12 @@ export default function HangerConfigForm({
           onChange={(e) => setCableTrayId(e.target.value ? Number(e.target.value) : "")}
           className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-amber-400"
         >
-          <option value="">Select cable tray...</option>
-          {SAMPLE_CABLE_TRAYS.map((ct) => (
+          <option value="">
+            {cableTrays.length ? "Select cable tray..." : "No cable trays scanned yet"}
+          </option>
+          {cableTrays.map((ct) => (
             <option key={ct.id} value={ct.id}>
-              {ct.name} ({ct.length_m}m, {ct.level})
+              {ct.name} ({ct.length_m.toFixed(2)}m{ct.level ? `, ${ct.level}` : ""})
             </option>
           ))}
         </select>
@@ -166,10 +245,12 @@ export default function HangerConfigForm({
           onChange={(e) => setHangerFamilyName(e.target.value)}
           className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-amber-400"
         >
-          <option value="">Select hanger family...</option>
-          {SAMPLE_HANGER_FAMILIES.map((f) => (
+          <option value="">
+            {hangerFamilies.length ? "Select hanger family..." : "No hanger families scanned yet"}
+          </option>
+          {hangerFamilies.map((f) => (
             <option key={f.name} value={f.name}>
-              {f.name}
+              {f.name} ({f.type_count} {f.type_count === 1 ? "type" : "types"})
             </option>
           ))}
         </select>

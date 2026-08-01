@@ -163,7 +163,8 @@ internal sealed class HangerApiClient(AddinSettings settings)
         if (!settings.IsConfigured)
         {
             throw new ApiException(
-                "The add-in is not configured yet. Use Settings on the ribbon to set the API base URL and key.");
+                "The add-in is not configured yet. Use Settings on the ribbon to set the API base "
+                + "URL, the API key and the project name.");
         }
 
         var request = new HttpRequestMessage(method, new Uri(new Uri(settings.ApiBaseUrl), path));
