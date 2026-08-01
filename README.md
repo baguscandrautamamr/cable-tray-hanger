@@ -163,8 +163,9 @@ The response contains only booleans — never a value, a URL or a key.
 
    Selecting beats sweeping the active view: a 3D view shows every run in the
    model, including other levels and runs already done, with no way to say
-   "these ones". Fittings are worth selecting alongside the trays — an elbow is
-   what forces a hanger at a direction change.
+   "these ones". Fittings are reported alongside the trays, but they no longer
+   earn a hanger of their own: the spacing entered on the form is the whole
+   rule, and a bend gets a hanger only where that spacing puts one.
 2. The config form reads the newest scan from `GET /api/latest-scan`. There is
    no tray to pick: a config covers **every** tray in the scan, because a run
    needs hangers along all of it and choosing them one at a time was the slow

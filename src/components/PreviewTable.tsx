@@ -17,10 +17,9 @@ const REASON_COLOR: Record<PlacementPosition["reason"], string> = {
 
 interface PreviewTableProps {
   positions: PlacementPosition[];
-  elbowPositionsM: number[];
 }
 
-export default function PreviewTable({ positions, elbowPositionsM }: PreviewTableProps) {
+export default function PreviewTable({ positions }: PreviewTableProps) {
   return (
     <div className="overflow-x-auto rounded-lg border border-slate-800">
       <table className="w-full min-w-[420px] text-left text-sm">
@@ -28,17 +27,11 @@ export default function PreviewTable({ positions, elbowPositionsM }: PreviewTabl
           <tr>
             <th className="px-4 py-2 font-medium">Position (mm)</th>
             <th className="px-4 py-2 font-medium">Reason</th>
-            <th className="px-4 py-2 font-medium">Elbow Detected?</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-slate-800">
           {positions.map((p, i) => {
             const Icon = REASON_ICON[p.reason];
-            // pos_m is rounded to 2dp, so the comparison has to allow half a
-            // centimetre — a tighter window misses elbows the row is built from.
-            const isElbow = elbowPositionsM.some(
-              (e) => Math.abs(e - p.pos_m) <= 0.005,
-            );
             return (
               <tr key={`${p.pos_m}-${i}`} className="text-slate-300">
                 <td className="px-4 py-2 font-mono">{Math.round(p.pos_m * 1000)}</td>
@@ -48,7 +41,6 @@ export default function PreviewTable({ positions, elbowPositionsM }: PreviewTabl
                     {p.reason}
                   </span>
                 </td>
-                <td className="px-4 py-2">{isElbow ? "Yes" : "-"}</td>
               </tr>
             );
           })}

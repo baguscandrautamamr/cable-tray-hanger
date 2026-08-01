@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import type { Elbow } from "../types";
 import {
   MAX_LENGTH_M,
   MIN_CLEARANCE_M,
@@ -8,19 +7,16 @@ import {
   summarizePlacements,
 } from "./placementAlgorithm";
 
-const elbowsAt = (...positions: number[]): Elbow[] =>
-  positions.map((position_m) => ({ position_m }));
-
 describe("calculatePlacements", () => {
   it("brackets the tray with a START and an END hanger", () => {
-    const positions = calculatePlacements(10, 1500, []);
+    const positions = calculatePlacements(10, 1500);
 
     expect(positions[0]).toEqual({ pos_m: 0, reason: "START" });
     expect(positions.at(-1)).toEqual({ pos_m: 10, reason: "END" });
   });
 
-  it("fills the run on the spacing schedule when there are no elbows", () => {
-    expect(calculatePlacements(6, 1500, [])).toEqual([
+  it("fills the run on the spacing schedule", () => {
+    expect(calculatePlacements(6, 1500)).toEqual([
       { pos_m: 0, reason: "START" },
       { pos_m: 1.5, reason: "SPACING" },
       { pos_m: 3, reason: "SPACING" },
@@ -29,17 +25,26 @@ describe("calculatePlacements", () => {
     ]);
   });
 
-  it("forces a hanger at every elbow and resumes spacing from it", () => {
-    const positions = calculatePlacements(10, 1500, elbowsAt(1.48, 4.2));
+  // The spacing entered on the web page is the whole rule. A bend used to force
+  // a hanger of its own, which is what put two of them inside each other at
+  // every joint.
+  it("answers only to the spacing, whatever the run does in between", () => {
+    const positions = calculatePlacements(9, 3000);
 
-    expect(positions).toContainEqual({ pos_m: 1.48, reason: "ELBOW" });
-    expect(positions).toContainEqual({ pos_m: 4.2, reason: "ELBOW" });
-    // Spacing restarts from the elbow, not from the missed tick.
-    expect(positions).toContainEqual({ pos_m: 2.98, reason: "SPACING" });
+    expect(positions.map((p) => p.pos_m)).toEqual([0, 3, 6, 9]);
+    expect(positions.some((p) => p.reason === "ELBOW")).toBe(false);
+  });
+
+  it("holds the spacing exactly over a long run", () => {
+    const positions = calculatePlacements(150, 1500);
+
+    // Counted from the start, not accumulated: 100 additions of 1.5 drift.
+    expect(positions).toHaveLength(101);
+    expect(positions.at(-2)).toEqual({ pos_m: 148.5, reason: "SPACING" });
   });
 
   it("always returns strictly increasing positions", () => {
-    const positions = calculatePlacements(45.5, 1500, elbowsAt(1.48, 4.2, 12.8, 22.3, 35.6));
+    const positions = calculatePlacements(45.5, 1500);
 
     for (let i = 1; i < positions.length; i++) {
       expect(positions[i].pos_m).toBeGreaterThan(positions[i - 1].pos_m);
@@ -52,107 +57,33 @@ describe("calculatePlacements", () => {
     it.each([0, -100, Number.NaN, Number.POSITIVE_INFINITY, MIN_SPACING_MM - 1])(
       "throws on spacingMm=%p",
       (spacing) => {
-        expect(() => calculatePlacements(10, spacing, [])).toThrow(RangeError);
+        expect(() => calculatePlacements(10, spacing)).toThrow(RangeError);
       },
     );
 
     it.each([0, -5, Number.NaN, MAX_LENGTH_M + 1])("throws on totalLengthM=%p", (length) => {
-      expect(() => calculatePlacements(length, 1500, [])).toThrow(RangeError);
-    });
-  });
-
-  describe("elbow queue cannot stall", () => {
-    // Regression: an elbow at or behind the cursor never advanced elbowIdx, so
-    // every elbow after it was silently dropped and Revit lost those hangers.
-    it("still places later elbows when one sits at position 0", () => {
-      const positions = calculatePlacements(10, 1500, elbowsAt(0, 3, 7));
-
-      expect(positions).toContainEqual({ pos_m: 3, reason: "ELBOW" });
-      expect(positions).toContainEqual({ pos_m: 7, reason: "ELBOW" });
-    });
-
-    it("still places later elbows when one is duplicated", () => {
-      const positions = calculatePlacements(10, 1500, elbowsAt(3, 3, 7));
-
-      expect(summarizePlacements(positions).atElbows).toBe(2);
-      expect(positions).toContainEqual({ pos_m: 7, reason: "ELBOW" });
-    });
-
-    it("still places later elbows when one is behind the tray start", () => {
-      const positions = calculatePlacements(10, 1500, elbowsAt(-1, 7));
-
-      expect(positions).toContainEqual({ pos_m: 7, reason: "ELBOW" });
-    });
-
-    it("ignores elbows past the tray end and non-finite positions", () => {
-      const positions = calculatePlacements(10, 1500, elbowsAt(99, Number.NaN, 3));
-
-      expect(summarizePlacements(positions).atElbows).toBe(1);
-      expect(positions).toContainEqual({ pos_m: 3, reason: "ELBOW" });
-    });
-
-    it("accepts elbows in any order", () => {
-      expect(calculatePlacements(10, 1500, elbowsAt(7, 3))).toEqual(
-        calculatePlacements(10, 1500, elbowsAt(3, 7)),
-      );
-    });
-  });
-
-  describe("no two hangers closer than the clearance", () => {
-    // Regression: an elbow is scanned at the joint it sits on, which is where
-    // the tray it was matched to starts — so every such elbow scheduled a
-    // hanger a few centimetres from the START hanger, and the pair came out of
-    // Revit standing inside each other.
-    it("merges a near-start elbow into the START hanger", () => {
-      const positions = calculatePlacements(10, 1500, elbowsAt(0.04));
-
-      expect(positions[0]).toEqual({ pos_m: 0, reason: "START" });
-      expect(positions.filter((p) => p.pos_m < 0.3)).toHaveLength(1);
-    });
-
-    it("keeps an elbow that clears the START hanger", () => {
-      const positions = calculatePlacements(10, 1500, elbowsAt(MIN_CLEARANCE_M));
-
-      expect(positions[1]).toEqual({ pos_m: MIN_CLEARANCE_M, reason: "ELBOW" });
-    });
-
-    it("merges elbows bunched at one joint into a single hanger", () => {
-      // Both sides of a bend get scanned as fittings a few centimetres apart.
-      const positions = calculatePlacements(10, 1500, elbowsAt(4.2, 4.25, 4.3));
-
-      expect(summarizePlacements(positions).atElbows).toBe(1);
-      expect(positions).toContainEqual({ pos_m: 4.2, reason: "ELBOW" });
-    });
-
-    it("holds the clearance between every pair of hangers", () => {
-      const positions = calculatePlacements(45.5, 1500, elbowsAt(0.05, 1.48, 1.5, 12.8, 45.4));
-
-      for (let i = 1; i < positions.length; i++) {
-        expect(positions[i].pos_m - positions[i - 1].pos_m).toBeGreaterThanOrEqual(
-          MIN_CLEARANCE_M,
-        );
-      }
+      expect(() => calculatePlacements(length, 1500)).toThrow(RangeError);
     });
   });
 
   describe("tray end", () => {
-    // Regression: an elbow just short of the end produced two hangers 50mm apart.
-    it("merges a near-end elbow into the END hanger", () => {
-      const positions = calculatePlacements(45.5, 1500, elbowsAt(45.45));
+    it("merges a tick that lands just short of the end into the END hanger", () => {
+      const positions = calculatePlacements(3.1, 1500);
 
-      expect(positions.at(-1)).toEqual({ pos_m: 45.5, reason: "END" });
-      expect(positions.filter((p) => p.pos_m > 45.3)).toHaveLength(1);
+      // 3.0 is 100mm short of the end; two hangers do not fit in 100mm.
+      expect(positions.at(-1)).toEqual({ pos_m: 3.1, reason: "END" });
+      expect(positions.filter((p) => p.pos_m > 2.9)).toHaveLength(1);
     });
 
-    it("keeps an elbow that clears the tolerance as its own hanger", () => {
-      const positions = calculatePlacements(45.5, 1500, elbowsAt(45.2));
+    it("keeps a tick that clears the end by the clearance", () => {
+      const positions = calculatePlacements(3 + MIN_CLEARANCE_M, 1500);
 
-      expect(positions.at(-2)).toEqual({ pos_m: 45.2, reason: "ELBOW" });
-      expect(positions.at(-1)).toEqual({ pos_m: 45.5, reason: "END" });
+      expect(positions.at(-2)).toEqual({ pos_m: 3, reason: "SPACING" });
+      expect(positions.at(-1)).toEqual({ pos_m: 3.3, reason: "END" });
     });
 
     it("does not collapse START into END on a very short tray", () => {
-      const positions = calculatePlacements(0.05, 1500, []);
+      const positions = calculatePlacements(0.05, 1500);
 
       expect(positions).toEqual([
         { pos_m: 0, reason: "START" },
@@ -161,27 +92,35 @@ describe("calculatePlacements", () => {
     });
 
     it("does not duplicate a spacing tick that lands on the tray end", () => {
-      const positions = calculatePlacements(3, 1500, []);
+      const positions = calculatePlacements(3, 1500);
 
       expect(positions.at(-1)).toEqual({ pos_m: 3, reason: "END" });
       expect(positions.filter((p) => p.pos_m === 3)).toHaveLength(1);
+    });
+
+    it("holds the clearance between every pair of hangers", () => {
+      const positions = calculatePlacements(45.4, 1500);
+
+      for (let i = 1; i < positions.length; i++) {
+        expect(positions[i].pos_m - positions[i - 1].pos_m).toBeGreaterThanOrEqual(
+          MIN_CLEARANCE_M,
+        );
+      }
     });
   });
 });
 
 describe("summarizePlacements", () => {
   it("counts each placement reason", () => {
-    const stats = summarizePlacements(calculatePlacements(10, 1500, elbowsAt(3)));
+    const stats = summarizePlacements(calculatePlacements(10, 1500));
 
-    expect(stats.total).toBe(stats.atElbows + stats.atSpacing + stats.startEnd);
-    expect(stats.atElbows).toBe(1);
+    expect(stats.total).toBe(stats.atSpacing + stats.startEnd);
     expect(stats.startEnd).toBe(2);
   });
 
   it("reports zeroes for an empty placement list", () => {
     expect(summarizePlacements([])).toEqual({
       total: 0,
-      atElbows: 0,
       atSpacing: 0,
       startEnd: 0,
     });

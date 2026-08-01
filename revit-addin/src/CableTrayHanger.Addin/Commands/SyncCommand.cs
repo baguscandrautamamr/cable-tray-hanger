@@ -222,8 +222,8 @@ public sealed class SyncCommand : IExternalCommand
         if (placedHangers.Skipped > 0)
         {
             unaccounted.Add(
-                $"{placedHangers.Skipped} were already served — where two trays meet, the joint "
-                + "takes one hanger rather than one from each side");
+                $"{placedHangers.Skipped} had nowhere to stand clear of the hanger already there — "
+                + "runs too short to hold two");
         }
 
         if (failures.Count > 0)
@@ -244,6 +244,15 @@ public sealed class SyncCommand : IExternalCommand
                            ? $"\n... and {missing.Count - MaxReportedFailures} more."
                            : "")
                        + "\n\n" + StaleScanAdvice;
+        }
+
+        // Placed, so not part of the accounting above — but worth saying, since
+        // these are the hangers that are not exactly where the spacing put them.
+        if (placedHangers.Separated > 0)
+        {
+            summary += $"\n\n{placedHangers.Separated} pairs met at a joint and were stepped apart "
+                       + "along their own runs, so the bend keeps a hanger on each side without "
+                       + "the two clashing.";
         }
 
         if (config.HangerHeightMm is > 0)

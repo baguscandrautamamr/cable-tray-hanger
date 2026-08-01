@@ -113,15 +113,19 @@ Colours are mid-tones so the artwork survives both the light and dark Revit
   acknowledges the payload but does not store it, so **Scan** currently has no
   visible effect in the browser — the config form still lists placeholder
   trays. See "Known gaps" in the root README.
-- **Elbows are matched to trays by proximity.** A fitting is assigned to the
-  nearest tray centreline within 2 ft, and its position is the distance from
-  that tray's start. Connector traversal would be exact; this is enough for
-  straight runs and avoids guessing which of a fitting's two runs "owns" it.
-- **A joint gets one hanger.** Two hangers never stand closer than 300mm. Along
-  a single tray the web app enforces it; across trays the add-in does, because
-  the payload carries offsets rather than coordinates and only the model says
-  that the end of one run and the start of the next are the same place. The
-  summary dialog says how many positions were served this way.
+- **Elbows are reported, not acted on.** A fitting is assigned to the nearest
+  tray centreline within 2 ft and its position recorded as the distance from
+  that tray's start, so the web app can say how many bends a scan covered.
+  Nothing places a hanger from it.
+- **Spacing is the only rule.** Hangers go at the two ends of each tray and at
+  the spacing entered on the web page. A bend earns one only if the spacing puts
+  it there.
+- **Hangers that meet at a joint are stepped apart.** Two runs meeting at a bend
+  each want a hanger at the point they share. Both slide along their own tray,
+  away from each other, until they clear — by the trays' own widths, since a
+  hanger straddles its tray, and never by less than 300mm. Only the add-in can
+  do this: the payload carries offsets along a tray, not coordinates, so nothing
+  in it says two trays touch. The summary dialog says how many pairs moved.
 - **Hangers are placed level-based.** Face-based and work-plane-based hanger
   families will be rejected by Revit; those positions are counted as failures
   and listed in the summary dialog rather than skipped silently.
