@@ -27,3 +27,11 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# .NET (revit-addin/)
+bin/
+obj/
+*.user
+# The Vite template ignores *.sln above as an editor artefact; the Revit add-in
+# solution is real source and has to be tracked.
+!revit-addin/CableTrayHanger.sln

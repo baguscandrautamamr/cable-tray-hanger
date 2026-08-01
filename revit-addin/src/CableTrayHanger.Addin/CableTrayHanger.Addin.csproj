@@ -1,0 +1,59 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- Revit 2025 runs on .NET 8; 2024 and earlier are .NET Framework 4.8. -->
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <PlatformTarget>x64</PlatformTarget>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+
+    <AssemblyName>CableTrayHanger.Addin</AssemblyName>
+    <RootNamespace>CableTrayHanger.Addin</RootNamespace>
+    <Version>1.0.0</Version>
+    <Company>Cable Tray Hanger Configuration System</Company>
+
+    <!-- Revit ribbon images are WPF ImageSource, so the Windows Desktop
+         framework is required even though the add-in has no windows. -->
+    <UseWPF>true</UseWPF>
+
+    <!-- Lets the project build on a Linux/macOS agent too, by restoring the
+         Windows targeting packs from NuGet. No effect when building on
+         Windows. -->
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+
+    <!-- Revit loads add-ins into their own AssemblyLoadContext; this emits the
+         deps.json it uses to resolve dependencies. -->
+    <EnableDynamicLoading>true</EnableDynamicLoading>
+
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Reference assemblies only. Pinned to 2025.0.2 rather than 2025.1 so the
+         build can't pick up an API that shipped in a later 2025 update and
+         break on a base 2025.0 install. ExcludeAssets="runtime" keeps
+         RevitAPI.dll out of the output — Revit supplies its own. -->
+    <PackageReference Include="Nice3point.Revit.Api.RevitAPI" Version="2025.0.2"
+                      ExcludeAssets="runtime" PrivateAssets="all" />
+    <PackageReference Include="Nice3point.Revit.Api.RevitAPIUI" Version="2025.0.2"
+                      ExcludeAssets="runtime" PrivateAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Embedded so the DLL is self-contained: no loose image files to deploy
+         alongside it. LogicalName is set explicitly rather than left to the
+         path-derived default, because CableTrayHangerApplication looks these
+         names up as strings. -->
+    <EmbeddedResource Include="Resources\Icons\*.png">
+      <LogicalName>CableTrayHanger.Addin.Resources.Icons.%(Filename)%(Extension)</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="CableTrayHanger.addin" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

@@ -1,7 +1,8 @@
 # Cable Tray Hanger Configuration System — Web App (Phase 1)
 
 React web app that controls placement of hangers on cable trays in Revit.
-This is Phase 1 (web control center); a C# Revit add-in (Phase 2) syncs with it.
+This is Phase 1 (web control center). The Revit 2025 add-in that syncs with it
+(Phase 2) lives in [`revit-addin/`](revit-addin/README.md).
 
 ## Stack
 
@@ -79,7 +80,8 @@ the request body carries no user id. `PATCH /api/config-status/:id` accepts a
 does not store it, so the config form still lists the placeholder trays and
 hanger families in `src/components/HangerConfigForm.tsx`. Closing the
 Revit → web loop needs a table for scan results, a read endpoint for the
-frontend, and the form switched over from those constants.
+frontend, and the form switched over from those constants. Until then the
+add-in's **Scan Cable Tray** button has no visible effect in the browser.
 
 ## Deploy
 
