@@ -6,8 +6,17 @@
     <PlatformTarget>x64</PlatformTarget>
     <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
-    <ImplicitUsings>enable</ImplicitUsings>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+
+    <!-- Implicit usings are OFF deliberately, and must stay off.
+         RevitAPI.dll is compiled from C++/CLI and leaks ~7,000 internal types
+         into the *global* namespace, including names like IOException, Level,
+         Point, Result and Transaction. A type in the global namespace outranks
+         a global (implicit) using, so `catch (IOException)` binds to Revit's
+         inaccessible global type and fails with CS0122 — while a file-level
+         `using System.IO;` resolves correctly. Spelling the usings out per file
+         is what keeps that from happening. -->
+    <ImplicitUsings>disable</ImplicitUsings>
 
     <AssemblyName>CableTrayHanger.Addin</AssemblyName>
     <RootNamespace>CableTrayHanger.Addin</RootNamespace>
