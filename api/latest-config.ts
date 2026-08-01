@@ -63,7 +63,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   // the add-in only ever has one thing to read.
   const trays = data.trays ?? [
     {
-      cable_tray_id: data.cable_tray_id,
+      // Number, not the TEXT the single-tray column held: an ElementId travels
+      // as a JSON number now, and the add-in reads it as one.
+      cable_tray_id: Number(data.cable_tray_id) || 0,
       cable_tray_name: data.cable_tray_name,
       cable_tray_length_m: data.cable_tray_length_m,
       tray_width_mm: 0,

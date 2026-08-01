@@ -18,6 +18,23 @@ public sealed class SyncCommand : IExternalCommand
 
     public Result Execute(ExternalCommandData commandData, ref string message, ElementSet elements)
     {
+        // Anything unhandled here becomes Revit's "Command Failure for External
+        // Command" dialog, which names no cause and offers nothing to act on.
+        // Naming the exception is the difference between a bug report and a
+        // shrug.
+        try
+        {
+            return Run(commandData, ref message);
+        }
+        catch (Exception ex)
+        {
+            message = $"{ex.GetType().Name}: {ex.Message}";
+            return Result.Failed;
+        }
+    }
+
+    private static Result Run(ExternalCommandData commandData, ref string message)
+    {
         var uiDocument = commandData.Application.ActiveUIDocument;
         if (uiDocument?.Document is not { } document)
         {

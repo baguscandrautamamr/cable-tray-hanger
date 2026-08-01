@@ -109,7 +109,13 @@ internal sealed class PlacementPositionDto
 /// <summary>One cable tray inside a config, with its placement worked out.</summary>
 internal sealed class ConfigTrayDto
 {
-    public string CableTrayId { get; set; } = "";
+    /// <summary>
+    /// A Revit ElementId, sent as a JSON number. It was a string while a config
+    /// held one tray in a TEXT column; the trays array carries the id as the
+    /// number it is, and deserializing that into a string throws.
+    /// </summary>
+    public long CableTrayId { get; set; }
+
     public string CableTrayName { get; set; } = "";
 
     [JsonPropertyName("cable_tray_length_m")]

@@ -147,7 +147,26 @@ internal sealed class HangerApiClient(AddinSettings settings)
         using var request = CreateRequest(HttpMethod.Get, $"/api/latest-config?project={project}&status=PENDING");
 
         var body = SendAsync(request, treatNotFoundAsEmpty: true).GetAwaiter().GetResult();
-        return body is null ? null : JsonSerializer.Deserialize<LatestConfigDto>(body, Json);
+
+        if (body is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            return JsonSerializer.Deserialize<LatestConfigDto>(body, Json);
+        }
+        catch (JsonException ex)
+        {
+            // A shape the add-in does not understand — usually a web app newer
+            // than this build. Raised as an ApiException so the command reports
+            // it, rather than escaping as Revit's "Command Failure" dialog,
+            // which names nothing and leaves nowhere to go.
+            throw new ApiException(
+                "The server's reply could not be read, so this add-in build is probably older "
+                + $"than the web app. Rebuild it from revit-addin/.\n\nDetail: {ex.Message}");
+        }
     }
 
     /// <summary>PATCH /api/config-status/:id — report the outcome of a sync.</summary>
