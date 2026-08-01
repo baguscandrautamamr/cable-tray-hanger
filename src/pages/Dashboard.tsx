@@ -1,4 +1,4 @@
-import { Plus } from "lucide-react";
+import { KeyRound, Plus } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import type { Session } from "@supabase/supabase-js";
@@ -47,6 +47,14 @@ export default function Dashboard({ session }: DashboardProps) {
           <h1 className="text-2xl font-semibold text-slate-100">Cable Tray Hanger</h1>
           <p className="text-sm text-slate-500">Recent hanger configurations</p>
         </div>
+        <div className="flex items-center gap-2">
+        <Link
+          to="/api-keys"
+          className="inline-flex items-center gap-1.5 rounded-md border border-slate-700 px-3 py-2 text-sm text-slate-300 hover:bg-slate-800"
+        >
+          <KeyRound size={18} />
+          API Keys
+        </Link>
         <Link
           to="/config"
           className="inline-flex items-center gap-1.5 rounded-md bg-amber-500 px-4 py-2 text-sm font-medium text-slate-950 hover:bg-amber-400"
@@ -54,6 +62,7 @@ export default function Dashboard({ session }: DashboardProps) {
           <Plus size={18} />
           New Config
         </Link>
+        </div>
       </header>
 
       <AuthSection session={session} />

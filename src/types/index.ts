@@ -80,6 +80,22 @@ export interface PlacementStats {
   startEnd: number;
 }
 
+export interface AddinApiKey {
+  id: string;
+  label: string;
+  key_preview: string;
+  created_at: string;
+  last_used_at: string | null;
+  revoked_at: string | null;
+}
+
+/** POST /api/addin-keys — `key` is the only time the secret is readable. */
+export interface CreatedAddinApiKey {
+  status: "SUCCESS";
+  key: string;
+  record: AddinApiKey;
+}
+
 export type AlertKind = "success" | "pending" | "failed" | "info";
 
 export interface StatusAlertData {

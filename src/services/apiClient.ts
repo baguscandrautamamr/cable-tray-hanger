@@ -1,4 +1,9 @@
-import type { HangerConfigInput, HangerConfigResult } from "../types";
+import type {
+  AddinApiKey,
+  CreatedAddinApiKey,
+  HangerConfigInput,
+  HangerConfigResult,
+} from "../types";
 import { supabase } from "./supabaseClient";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "";
@@ -38,5 +43,23 @@ export function submitHangerConfig(input: HangerConfigInput) {
   return request<HangerConfigResult>("/api/hanger-config", {
     method: "POST",
     body: JSON.stringify(input),
+  });
+}
+
+export function listAddinKeys() {
+  return request<{ keys: AddinApiKey[] }>("/api/addin-keys");
+}
+
+/** The response carries the secret in clear text — it is never retrievable again. */
+export function createAddinKey(label: string) {
+  return request<CreatedAddinApiKey>("/api/addin-keys", {
+    method: "POST",
+    body: JSON.stringify({ label }),
+  });
+}
+
+export function revokeAddinKey(id: string) {
+  return request<{ message: string }>(`/api/addin-keys?id=${encodeURIComponent(id)}`, {
+    method: "DELETE",
   });
 }

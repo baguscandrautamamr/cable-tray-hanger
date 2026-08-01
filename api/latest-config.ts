@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { requireAddinKey } from "./_lib/auth";
-import { supabaseAdmin } from "./_lib/supabaseAdmin";
+import { resolveSupabaseAdmin } from "./_lib/supabaseAdmin";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== "GET") {
@@ -8,7 +8,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(405).json({ status: "FAILED", message: "Method not allowed" });
   }
 
-  if (!requireAddinKey(req, res)) return;
+  const caller = await requireAddinKey(req, res);
+  if (!caller) return;
+
+  const supabaseAdmin = resolveSupabaseAdmin(res);
+  if (!supabaseAdmin) return;
 
   const { project, status = "PENDING" } = req.query;
 
@@ -16,11 +20,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(400).json({ status: "FAILED", message: "Missing project query param" });
   }
 
-  const { data, error } = await supabaseAdmin
+  let query = supabaseAdmin
     .from("hanger_configs")
     .select("*")
     .eq("project_name", project)
-    .eq("status", status)
+    .eq("status", status);
+
+  // A key belongs to an account, so it only sees that account's configs. The
+  // environment fallback has no owner and is left unscoped.
+  if (caller.userId) {
+    query = query.eq("created_by", caller.userId);
+  }
+
+  const { data, error } = await query
     .order("created_at", { ascending: true })
     .limit(1)
     .maybeSingle();
