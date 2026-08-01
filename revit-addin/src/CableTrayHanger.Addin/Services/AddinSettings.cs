@@ -37,9 +37,30 @@ internal sealed class AddinSettings
     /// Case-insensitive substring used to pick hanger families out of the
     /// model. Revit has no "hanger" category, and offices name these families
     /// differently, so it has to be configurable.
+    ///
+    /// "hang" rather than "hanger": it matches Hanger, Hangers and HANGING
+    /// alike, and real families are named things like
+    /// "ACT_E_SUPPORT HANGING CABEL TRAY", which "hanger" misses entirely.
     /// </summary>
     [JsonPropertyName("hangerFamilyKeyword")]
-    public string HangerFamilyKeyword { get; set; } = "hanger";
+    public string HangerFamilyKeyword { get; set; } = "hang";
+
+    /// <summary>
+    /// Instance parameter on the hanger family that holds the tray width. The
+    /// add-in writes each tray's own width into it, so one config can serve
+    /// runs of different widths without anyone typing a number twice.
+    /// Blank switches the behaviour off.
+    /// </summary>
+    [JsonPropertyName("trayWidthParameter")]
+    public string TrayWidthParameter { get; set; } = "TRAY_W";
+
+    /// <summary>
+    /// Instance parameter holding the hanger's drop height. Written only onto
+    /// instances this add-in creates — an existing hanger keeps whatever it was
+    /// revised to in Revit. Blank switches the behaviour off.
+    /// </summary>
+    [JsonPropertyName("hangerHeightParameter")]
+    public string HangerHeightParameter { get; set; } = "Height Support";
 
     /// <summary>
     /// ProjectName counts: the server files a scan under it and rejects a

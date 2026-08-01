@@ -29,7 +29,7 @@ Setting only one pair is the most common way to get this half-working.
 | `VITE_SUPABASE_URL` | browser | Supabase project URL | Amber "not configured" banner; login does nothing |
 | `VITE_SUPABASE_ANON_KEY` | browser | **anon / public** key | Same |
 | `VITE_API_BASE_URL` | browser | Leave **empty** — see below | API calls go to the wrong origin |
-| `VITE_PROJECT_NAME` | browser | Default Revit project name shown in the UI | Falls back to `HBE-ELECTRICAL-E`, which the add-in probably is not polling for |
+| `VITE_PROJECT_NAME` | browser | Placeholder shown before the first scan | Header reads "No project scanned yet" until a scan arrives |
 | `SUPABASE_URL` | server | *Same value* as `VITE_SUPABASE_URL` | Every `api/` route 500s |
 | `SUPABASE_SERVICE_ROLE_KEY` | server | **service_role** key | Same |
 | `ADDIN_API_KEY` | server, optional | Fallback shared secret — see below | Nothing; it is optional |
@@ -57,11 +57,10 @@ Two things this trips people on:
 Set all of them in Vercel under **Settings → Environment Variables**
 (Production/Preview/Development scopes), never in a committed file.
 
-`VITE_PROJECT_NAME` has to match the **Project name** field in the add-in's
-Settings dialog exactly. The web app stamps that string onto every config it
-pushes and the add-in polls for its own string, so a mismatch is silent: the
-web app reports success and **Sync Hangers** keeps answering "No pending
-configuration".
+`VITE_PROJECT_NAME` no longer has to match the add-in's **Project name**: a
+config takes its project from the scan it was built on, so the two are the same
+string by construction. The variable only names the project in the header
+before any scan has arrived.
 
 `ADDIN_API_KEY` is optional and usually unnecessary. Add-in keys are normally
 generated per user in the web app (**API Keys** in the header), which is the
@@ -86,6 +85,7 @@ instead:
 | `supabase/migrations/0001-hardening.sql` | `TIMESTAMPTZ` columns, status/spacing constraints, `updated_at` trigger, `confirm_placement` |
 | `supabase/migrations/0002-addin-api-keys.sql` | `addin_api_keys` table for keys generated in the web app |
 | `supabase/migrations/0003-cable-tray-scans.sql` | `cable_tray_scans` table, so the add-in's scan reaches the config form |
+| `supabase/migrations/0004-whole-scan-configs.sql` | a config covers every tray in a scan, and carries the hanger height |
 
 ## Commands
 
@@ -156,17 +156,36 @@ The response contains only booleans — never a value, a URL or a key.
 
 1. **Scan Cable Tray** in Revit posts the active view's trays, elbows and
    hanger families to `POST /api/scan-cable-tray`, which stores them against
-   the account that owns the API key.
-2. The config form reads the newest scan from `GET /api/latest-scan` and lists
-   the model's real trays and families. An elbow carries the id of the tray it
-   was matched to, so selecting a tray shows only its own elbows.
-3. Pushing a config saves it as `PENDING` under the web app's
-   `VITE_PROJECT_NAME`.
-4. **Sync Hangers** in Revit polls `GET /api/latest-config` for the add-in's
-   **Project name**, places the hangers, and reports back.
+   the account that owns the API key. Each tray carries its **width** and how
+   many hangers are already on it.
+2. The config form reads the newest scan from `GET /api/latest-scan`. There is
+   no tray to pick: a config covers **every** tray in the scan, because a run
+   needs hangers along all of it and choosing them one at a time was the slow
+   part of the job.
+3. You choose three things — hanger family, spacing, and height. Everything
+   else is taken from the model.
+4. **Sync Hangers** places the lot in one transaction and reports back.
 
-Steps 3 and 4 only meet if those two names are identical, so the form compares
-the scan's project name against its own and says so when they differ.
+The project name travels with the scan, so the web app adopts whatever the
+add-in scanned under. `VITE_PROJECT_NAME` is only a placeholder shown before
+the first scan arrives — the two can no longer drift apart.
+
+### Width, height, and revisions
+
+**Width is never typed in.** The hanger has to span the tray, so the add-in
+writes each tray's own width into the hanger's width parameter. One config
+serves runs of different widths.
+
+**Height is the one dimension the model cannot supply**, so the web app asks
+for it — and it is written *only* onto hangers the add-in creates. A hanger
+already in the model is never touched, so a height you revised in Revit
+survives every later push. A tray that already carries hangers is left out of
+a new config entirely; the form lists those trays and the height it found on
+them.
+
+Both parameter names (`TRAY_W` and `Height Support` by default) are settings in
+the add-in's dialog, because every office's hanger family names them
+differently. Blank switches that write off.
 
 ## Deploy
 

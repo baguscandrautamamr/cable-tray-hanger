@@ -13,6 +13,9 @@ namespace CableTrayHanger.Addin.Commands;
 [Transaction(TransactionMode.Manual)]
 public sealed class SyncCommand : IExternalCommand
 {
+    /// <summary>How many individual failures to spell out before summarising.</summary>
+    private const int MaxReportedFailures = 5;
+
     public Result Execute(ExternalCommandData commandData, ref string message, ElementSet elements)
     {
         var uiDocument = commandData.Application.ActiveUIDocument;
@@ -45,48 +48,91 @@ public sealed class SyncCommand : IExternalCommand
             return Result.Cancelled;
         }
 
-        // Resolve everything before opening the transaction, so a lookup failure
-        // leaves no empty undo entry behind.
-        if (HangerPlacer.FindCableTray(document, config.CableTrayId) is not { } cableTray)
+        if (config.Trays.Count == 0)
         {
-            message = $"Cable tray '{config.CableTrayName}' (id {config.CableTrayId}) is not in this model. "
-                      + "It may have been deleted, or the config belongs to another model.";
+            message = "That configuration contains no cable trays.";
             return Result.Failed;
         }
 
+        // Resolve everything before opening the transaction, so a lookup failure
+        // leaves no empty undo entry behind.
         if (HangerPlacer.FindSymbol(document, config.HangerFamilyName) is not { } symbol)
         {
             message = $"Hanger family '{config.HangerFamilyName}' is not loaded in this model.";
             return Result.Failed;
         }
 
-        PlacementOutcome outcome;
+        var resolved = new List<(ConfigTrayDto Tray, Element Element)>();
+        var failures = new List<string>();
+
+        foreach (var tray in config.Trays)
+        {
+            if (HangerPlacer.FindCableTray(document, tray.CableTrayId) is { } element)
+            {
+                resolved.Add((tray, element));
+            }
+            else
+            {
+                // A tray deleted since the scan, or a config from another model.
+                // One missing tray should not stop the other six being placed.
+                failures.Add($"{tray.CableTrayName} (id {tray.CableTrayId}): not in this model.");
+            }
+        }
+
+        if (resolved.Count == 0)
+        {
+            message = "None of the configuration's cable trays are in this model:\n\n"
+                      + string.Join("\n", failures.Take(MaxReportedFailures));
+            return Result.Failed;
+        }
+
+        var placed = 0;
+
+        // One transaction for the whole run: a half-placed model is worse than
+        // an unplaced one, and a single undo should take all of it back.
         using (var transaction = new Transaction(document, $"Place {config.TotalHangers} hangers"))
         {
             transaction.Start();
-            outcome = HangerPlacer.Place(document, cableTray, symbol, config.PlacementPositions);
 
-            if (outcome.Placed == 0)
+            foreach (var (tray, element) in resolved)
+            {
+                var outcome = HangerPlacer.Place(
+                    document, element, symbol, tray, config.HangerHeightMm, settings);
+
+                placed += outcome.Placed;
+                failures.AddRange(outcome.Failures.Select(failure => $"{tray.CableTrayName}: {failure}"));
+            }
+
+            if (placed == 0)
             {
                 transaction.RollBack();
-                ReportOutcome(client, config, outcome, succeeded: false);
-                message = "No hangers could be placed:\n\n" + string.Join("\n", outcome.Failures.Take(5));
+                ReportOutcome(client, config, 0, succeeded: false);
+                message = "No hangers could be placed:\n\n"
+                          + string.Join("\n", failures.Take(MaxReportedFailures));
                 return Result.Failed;
             }
 
             transaction.Commit();
         }
 
-        ReportOutcome(client, config, outcome, outcome.AllPlaced);
+        var allPlaced = failures.Count == 0;
+        ReportOutcome(client, config, placed, allPlaced);
 
-        var summary = $"Placed {outcome.Placed} of {config.PlacementPositions.Count} hangers "
-                      + $"on {config.CableTrayName}.";
+        var summary = $"Placed {placed} of {config.TotalHangers} hangers "
+                      + $"across {resolved.Count} of {config.Trays.Count} cable trays.";
 
-        if (!outcome.AllPlaced)
+        if (config.HangerHeightMm is > 0)
         {
-            summary += $"\n\n{outcome.Failures.Count} could not be placed:\n"
-                       + string.Join("\n", outcome.Failures.Take(5))
-                       + (outcome.Failures.Count > 5 ? $"\n... and {outcome.Failures.Count - 5} more." : "")
+            summary += $"\n\nHeight set to {config.HangerHeightMm:0.##}mm; width follows each tray.";
+        }
+
+        if (!allPlaced)
+        {
+            summary += $"\n\n{failures.Count} could not be placed:\n"
+                       + string.Join("\n", failures.Take(MaxReportedFailures))
+                       + (failures.Count > MaxReportedFailures
+                           ? $"\n... and {failures.Count - MaxReportedFailures} more."
+                           : "")
                        + "\n\nFace-based hanger families need a host; try a level-based family.";
         }
 
@@ -102,7 +148,7 @@ public sealed class SyncCommand : IExternalCommand
     private static void ReportOutcome(
         HangerApiClient client,
         LatestConfigDto config,
-        PlacementOutcome outcome,
+        int placed,
         bool succeeded)
     {
         try
@@ -110,7 +156,7 @@ public sealed class SyncCommand : IExternalCommand
             client.ReportStatus(config.ConfigId, new ConfigStatusUpdate
             {
                 Status = succeeded ? "SYNCED" : "FAILED",
-                HangersPlaced = outcome.Placed,
+                HangersPlaced = placed,
                 SyncTimestamp = DateTime.UtcNow.ToString("o"),
                 SyncedBy = Environment.UserName,
             });

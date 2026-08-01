@@ -17,6 +17,13 @@ internal static class CableTrayScanner
     /// </summary>
     private const double FittingToTrayToleranceFt = 2.0;
 
+    /// <summary>
+    /// Two existing hangers count as the same height if they agree to within
+    /// this many millimetres, so a rounding difference does not read as a
+    /// disagreement.
+    /// </summary>
+    private const double HeightAgreementMm = 1.0;
+
     public static ScanPayload Scan(Document document, View view, AddinSettings settings)
     {
         var trays = new FilteredElementCollector(document, view.Id)
@@ -31,22 +38,41 @@ internal static class CableTrayScanner
             .OfType<FamilyInstance>()
             .ToList();
 
+        // Hangers are themselves cable tray fittings in at least one real
+        // family ("ACT_E_SUPPORT HANGING CABEL TRAY"), so without this split
+        // every hanger already in the model was counted as an elbow and earned
+        // itself another hanger on the next sync.
+        var keyword = settings.HangerFamilyKeyword;
+        var hangerInstances = FindHangerInstances(document, view, keyword);
+        var hangerIds = hangerInstances.Select(instance => instance.Id).ToHashSet();
+        var elbowCandidates = fittings.Where(fitting => !hangerIds.Contains(fitting.Id));
+
+        var existing = CountHangersPerTray(trays, hangerInstances, settings.HangerHeightParameter);
+
         return new ScanPayload
         {
             ProjectName = settings.ProjectName,
             ViewName = view.Name,
-            CableTrays = trays.Select(tray => ToDto(document, tray)).ToList(),
-            Elbows = FindElbows(trays, fittings),
-            HangerFamilies = FindHangerFamilies(document, settings.HangerFamilyKeyword),
+            CableTrays = trays.Select(tray => ToDto(document, tray, existing)).ToList(),
+            Elbows = FindElbows(trays, elbowCandidates),
+            HangerFamilies = FindHangerFamilies(document, keyword),
             Timestamp = DateTime.UtcNow.ToString("o"),
         };
     }
 
-    private static CableTrayDto ToDto(Document document, CableTray tray)
+    /// <summary>What is already hanging on a tray, and at what height.</summary>
+    private sealed record ExistingHangers(int Count, double? HeightMm);
+
+    private static CableTrayDto ToDto(
+        Document document,
+        CableTray tray,
+        IReadOnlyDictionary<ElementId, ExistingHangers> existing)
     {
         var levelName = tray.ReferenceLevel?.Name
             ?? (document.GetElement(tray.LevelId) as Level)?.Name
             ?? "";
+
+        var found = existing.TryGetValue(tray.Id, out var hangers) ? hangers : null;
 
         return new CableTrayDto
         {
@@ -54,7 +80,112 @@ internal static class CableTrayScanner
             Name = tray.Name,
             Level = levelName,
             LengthM = UnitUtils.ConvertFromInternalUnits(GetLengthFt(tray), UnitTypeId.Meters),
+            WidthMm = UnitUtils.ConvertFromInternalUnits(GetWidthFt(tray), UnitTypeId.Millimeters),
+            ExistingHangerCount = found?.Count ?? 0,
+            ExistingHangerHeightMm = found?.HeightMm,
         };
+    }
+
+    /// <summary>
+    /// Every loaded instance whose family matches the hanger keyword, whatever
+    /// category it sits in — offices build these as cable tray fittings,
+    /// generic models or structural framing depending on the family.
+    /// </summary>
+    private static List<FamilyInstance> FindHangerInstances(Document document, View view, string keyword)
+    {
+        if (string.IsNullOrWhiteSpace(keyword))
+        {
+            // Everything would match, which would empty the elbow list and
+            // report the whole model as existing hangers. Better to report
+            // nothing than to report nonsense.
+            return [];
+        }
+
+        return new FilteredElementCollector(document, view.Id)
+            .OfClass(typeof(FamilyInstance))
+            .OfType<FamilyInstance>()
+            .Where(instance =>
+                instance.Symbol?.Family?.Name is { } name
+                && name.Contains(keyword, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+    }
+
+    /// <summary>
+    /// Groups existing hangers onto the tray they sit on, and reports the
+    /// height they share. A disagreement yields null rather than an average:
+    /// the point of the number is to say what is actually in the model.
+    /// </summary>
+    private static Dictionary<ElementId, ExistingHangers> CountHangersPerTray(
+        IReadOnlyCollection<CableTray> trays,
+        IEnumerable<FamilyInstance> hangers,
+        string heightParameter)
+    {
+        var perTray = new Dictionary<ElementId, List<double?>>();
+
+        foreach (var hanger in hangers)
+        {
+            if (hanger.Location is not LocationPoint { Point: var origin })
+            {
+                continue;
+            }
+
+            if (NearestTray(trays, origin) is not { } match)
+            {
+                continue;
+            }
+
+            var height = string.IsNullOrWhiteSpace(heightParameter)
+                ? null
+                : ParameterUnits.TryGetMillimetres(hanger.LookupParameter(heightParameter));
+
+            if (!perTray.TryGetValue(match.Tray.Id, out var heights))
+            {
+                heights = [];
+                perTray[match.Tray.Id] = heights;
+            }
+
+            heights.Add(height);
+        }
+
+        return perTray.ToDictionary(
+            entry => entry.Key,
+            entry => new ExistingHangers(entry.Value.Count, AgreedHeight(entry.Value)));
+    }
+
+    private static double? AgreedHeight(List<double?> heights)
+    {
+        var known = heights.Where(height => height.HasValue).Select(height => height!.Value).ToList();
+
+        if (known.Count == 0)
+        {
+            return null;
+        }
+
+        return known.Max() - known.Min() <= HeightAgreementMm ? known[0] : null;
+    }
+
+    private sealed record TrayMatch(CableTray Tray, Curve Curve, double Distance);
+
+    /// <summary>The tray whose centreline passes closest to a point, within tolerance.</summary>
+    private static TrayMatch? NearestTray(IReadOnlyCollection<CableTray> trays, XYZ origin)
+    {
+        TrayMatch? best = null;
+
+        foreach (var tray in trays)
+        {
+            if (GetCurve(tray) is not { } curve)
+            {
+                continue;
+            }
+
+            var projected = curve.Project(origin);
+            if (projected is not null && (best is null || projected.Distance < best.Distance))
+            {
+                best = new TrayMatch(tray, curve, projected.Distance);
+            }
+        }
+
+        return best is not null && best.Distance <= FittingToTrayToleranceFt ? best : null;
     }
 
     /// <summary>
@@ -78,39 +209,19 @@ internal static class CableTrayScanner
                 continue;
             }
 
-            CableTray? bestTray = null;
-            Curve? bestCurve = null;
-            var bestDistance = double.MaxValue;
-
-            foreach (var tray in trays)
-            {
-                if (GetCurve(tray) is not { } curve)
-                {
-                    continue;
-                }
-
-                var projected = curve.Project(origin);
-                if (projected is not null && projected.Distance < bestDistance)
-                {
-                    bestDistance = projected.Distance;
-                    bestCurve = curve;
-                    bestTray = tray;
-                }
-            }
-
-            if (bestCurve is null || bestTray is null || bestDistance > FittingToTrayToleranceFt)
+            if (NearestTray(trays, origin) is not { } match)
             {
                 continue;
             }
 
-            var pointOnCurve = bestCurve.Project(origin).XYZPoint;
-            var alongFt = bestCurve.GetEndPoint(0).DistanceTo(pointOnCurve);
+            var pointOnCurve = match.Curve.Project(origin).XYZPoint;
+            var alongFt = match.Curve.GetEndPoint(0).DistanceTo(pointOnCurve);
 
             elbows.Add(new ElbowDto
             {
                 Id = fitting.Id.Value,
                 Name = fitting.Name,
-                CableTrayId = bestTray.Id.Value,
+                CableTrayId = match.Tray.Id.Value,
                 PositionM = UnitUtils.ConvertFromInternalUnits(alongFt, UnitTypeId.Meters),
             });
         }
@@ -148,4 +259,20 @@ internal static class CableTrayScanner
         GetCurve(element)?.Length
         ?? element.get_Parameter(BuiltInParameter.CURVE_ELEM_LENGTH)?.AsDouble()
         ?? 0.0;
+
+    /// <summary>
+    /// Tray width in internal units. CableTray exposes it directly; the
+    /// built-in parameter is the fallback for anything that does not.
+    /// </summary>
+    private static double GetWidthFt(CableTray tray)
+    {
+        try
+        {
+            return tray.Width;
+        }
+        catch (Autodesk.Revit.Exceptions.ApplicationException)
+        {
+            return tray.get_Parameter(BuiltInParameter.RBS_CABLETRAY_WIDTH_PARAM)?.AsDouble() ?? 0.0;
+        }
+    }
 }

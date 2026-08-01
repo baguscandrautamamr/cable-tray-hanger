@@ -31,11 +31,12 @@ export default function HistoryTable({ configs }: HistoryTableProps) {
 
   return (
     <div className="overflow-x-auto rounded-lg border border-slate-800">
-      <table className="w-full min-w-[560px] text-left text-sm">
+      <table className="w-full min-w-[680px] text-left text-sm">
         <thead className="bg-slate-900 text-slate-400">
           <tr>
-            <th className="px-4 py-2 font-medium">Cable Tray</th>
+            <th className="px-4 py-2 font-medium">Cable Trays</th>
             <th className="px-4 py-2 font-medium">Hanger Family</th>
+            <th className="px-4 py-2 font-medium">Height</th>
             <th className="px-4 py-2 font-medium">Total Hangers</th>
             <th className="px-4 py-2 font-medium">Status</th>
             <th className="px-4 py-2 font-medium">Created</th>
@@ -47,8 +48,11 @@ export default function HistoryTable({ configs }: HistoryTableProps) {
             const color = STATUS_COLOR[c.status] ?? UNKNOWN_STATUS.color;
             return (
               <tr key={c.id} className="text-slate-300">
-                <td className="px-4 py-2">{c.cable_tray_name}</td>
+                <td className="px-4 py-2">{describeTrays(c)}</td>
                 <td className="px-4 py-2">{c.hanger_family_name}</td>
+                <td className="px-4 py-2">
+                  {c.hanger_height_mm ? `${c.hanger_height_mm}mm` : "—"}
+                </td>
                 <td className="px-4 py-2">{c.total_hangers_calculated}</td>
                 <td className={`px-4 py-2 ${color}`}>
                   <span className="inline-flex items-center gap-1.5">
@@ -66,4 +70,22 @@ export default function HistoryTable({ configs }: HistoryTableProps) {
       </table>
     </div>
   );
+}
+
+/**
+ * A config now covers every tray in a scan, so name one and count the rest.
+ * `cable_tray_name` is only populated on rows from the single-tray version.
+ */
+function describeTrays(config: HangerConfig): string {
+  const trays = config.trays ?? [];
+
+  if (trays.length === 0) {
+    return config.cable_tray_name ?? "—";
+  }
+
+  if (trays.length === 1) {
+    return trays[0].cable_tray_name;
+  }
+
+  return `${trays[0].cable_tray_name} +${trays.length - 1} more`;
 }

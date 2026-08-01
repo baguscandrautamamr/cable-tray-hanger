@@ -6,7 +6,10 @@ import Dashboard from "./pages/Dashboard";
 import Config from "./pages/Config";
 import ApiKeys from "./pages/ApiKeys";
 
-const PROJECT_NAME = import.meta.env.VITE_PROJECT_NAME ?? "HBE-ELECTRICAL-E";
+// Only a placeholder for the moment before a scan arrives — the real project
+// name travels with the scan, so this no longer has to match the add-in's
+// Settings dialog by hand.
+const FALLBACK_PROJECT_NAME = import.meta.env.VITE_PROJECT_NAME ?? "No project scanned yet";
 
 function App() {
   const [session, setSession] = useState<Session | null>(null);
@@ -46,7 +49,7 @@ function App() {
         <Route path="/" element={<Dashboard session={session} />} />
         <Route
           path="/config"
-          element={<Config session={session} projectName={PROJECT_NAME} />}
+          element={<Config session={session} fallbackProjectName={FALLBACK_PROJECT_NAME} />}
         />
         <Route path="/api-keys" element={<ApiKeys session={session} />} />
       </Routes>

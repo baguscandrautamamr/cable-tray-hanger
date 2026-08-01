@@ -2,8 +2,9 @@ import { KeyRound, Plus } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import type { Session } from "@supabase/supabase-js";
-import type { HangerConfig } from "../types";
+import type { HangerConfig, ScanRecord } from "../types";
 import { supabase } from "../services/supabaseClient";
+import { fetchLatestScan } from "../services/apiClient";
 import HistoryTable from "../components/HistoryTable";
 import AuthSection from "../components/AuthSection";
 import StatusAlert from "../components/StatusAlert";
@@ -16,6 +17,31 @@ export default function Dashboard({ session }: DashboardProps) {
   const [configs, setConfigs] = useState<HangerConfig[]>([]);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [scan, setScan] = useState<ScanRecord | null>(null);
+
+  // The project shown here is the one the add-in scanned under, so the header
+  // reflects Revit rather than a build-time constant.
+  useEffect(() => {
+    if (!session) {
+      setScan(null);
+      return;
+    }
+
+    let cancelled = false;
+
+    fetchLatestScan()
+      .then((latest) => {
+        if (!cancelled) setScan(latest);
+      })
+      .catch(() => {
+        // The header is decoration; the configuration list below is the page.
+        // A failure there is already reported.
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [session]);
 
   useEffect(() => {
     if (!session) {
@@ -56,7 +82,14 @@ export default function Dashboard({ session }: DashboardProps) {
       <header className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-semibold text-slate-100">Cable Tray Hanger</h1>
-          <p className="text-sm text-slate-500">Recent hanger configurations</p>
+          {scan ? (
+            <p className="text-sm text-slate-500">
+              <span className="text-slate-300">{scan.project_name}</span> — last scanned from{" "}
+              {scan.view_name || "an unnamed view"}, {scan.cable_trays.length} trays
+            </p>
+          ) : (
+            <p className="text-sm text-slate-500">Recent hanger configurations</p>
+          )}
         </div>
         <div className="flex items-center gap-2">
         <Link

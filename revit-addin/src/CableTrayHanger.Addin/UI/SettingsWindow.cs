@@ -28,6 +28,8 @@ internal sealed class SettingsWindow : Window
     private readonly CheckBox _revealKey = new() { Content = "Show", VerticalAlignment = VerticalAlignment.Center };
     private readonly TextBox _projectName = new();
     private readonly TextBox _keyword = new();
+    private readonly TextBox _widthParameter = new();
+    private readonly TextBox _heightParameter = new();
     private readonly TextBlock _status = new() { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 4, 0, 0) };
     private readonly Button _testButton = new() { Content = "Test connection", Padding = new Thickness(12, 4, 12, 4) };
     private readonly Button _saveButton = new() { Content = "Save", Padding = new Thickness(20, 4, 20, 4), IsDefault = true };
@@ -48,6 +50,8 @@ internal sealed class SettingsWindow : Window
         _apiKeyPlain.Text = settings.ApiKey;
         _projectName.Text = settings.ProjectName;
         _keyword.Text = settings.HangerFamilyKeyword;
+        _widthParameter.Text = settings.TrayWidthParameter;
+        _heightParameter.Text = settings.HangerHeightParameter;
 
         // Keep the two key editors in step so either can be the source of truth.
         _apiKeyMasked.PasswordChanged += (_, _) =>
@@ -119,7 +123,20 @@ internal sealed class SettingsWindow : Window
             "Hanger family keyword",
             _keyword,
             "Case-insensitive part of the family name. Revit has no hanger category, "
-            + "so this is how the add-in narrows the list. Blank means every loaded family."));
+            + "so this is how the add-in narrows the list, and how it tells hangers already "
+            + "in the model apart from elbows. Blank means every loaded family."));
+
+        root.Children.Add(Labelled(
+            "Tray width parameter",
+            _widthParameter,
+            "Instance parameter on the hanger that holds the tray width, e.g. TRAY_W. Each "
+            + "tray's own width is written into it. Blank to leave the family's own value."));
+
+        root.Children.Add(Labelled(
+            "Hanger height parameter",
+            _heightParameter,
+            "Instance parameter holding the drop height, e.g. \"Height Support\". Set only on "
+            + "hangers this add-in creates, so a height revised in Revit is never overwritten."));
 
         var buttons = new DockPanel { Margin = new Thickness(0, 8, 0, 0) };
         DockPanel.SetDock(_testButton, Dock.Left);
@@ -253,6 +270,8 @@ internal sealed class SettingsWindow : Window
         _settings.ApiKey = CurrentKey.Trim();
         _settings.ProjectName = _projectName.Text.Trim();
         _settings.HangerFamilyKeyword = _keyword.Text.Trim();
+        _settings.TrayWidthParameter = _widthParameter.Text.Trim();
+        _settings.HangerHeightParameter = _heightParameter.Text.Trim();
 
         try
         {

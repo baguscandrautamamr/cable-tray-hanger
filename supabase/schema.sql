@@ -5,12 +5,27 @@
 CREATE TABLE hanger_configs (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   project_name TEXT NOT NULL,
-  cable_tray_id TEXT NOT NULL,
-  cable_tray_name TEXT NOT NULL,
-  cable_tray_length_m FLOAT NOT NULL CHECK (cable_tray_length_m > 0),
+
+  -- Which scan this was built from. The server reads the trays, their widths
+  -- and the project name out of it rather than trusting the request body.
+  scan_id UUID REFERENCES cable_tray_scans(id) ON DELETE SET NULL,
+
+  -- A config covers every tray in a scan, not one picked from a dropdown:
+  -- [{cable_tray_id, cable_tray_name, cable_tray_length_m, tray_width_mm,
+  --   placement_positions:[{pos_m, reason}]}, ...]
+  trays JSONB,
+
+  -- Superseded by `trays`. Kept nullable so rows written by the single-tray
+  -- version of the app stay readable.
+  cable_tray_id TEXT,
+  cable_tray_name TEXT,
+  cable_tray_length_m FLOAT CHECK (cable_tray_length_m IS NULL OR cable_tray_length_m > 0),
 
   hanger_family_name TEXT NOT NULL,
   spacing_mm INTEGER NOT NULL DEFAULT 1500 CHECK (spacing_mm >= 100),
+
+  -- Applied to hangers the add-in creates, never to ones already in the model.
+  hanger_height_mm INTEGER CHECK (hanger_height_mm IS NULL OR hanger_height_mm > 0),
 
   elbows JSONB,
   placement_positions JSONB,
