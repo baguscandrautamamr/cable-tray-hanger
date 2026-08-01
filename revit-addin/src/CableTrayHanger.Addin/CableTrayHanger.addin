@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Copy this file, together with CableTrayHanger.Addin.dll, to:
+    %APPDATA%\Autodesk\Revit\Addins\2025\
+
+  The Assembly path below is relative to that folder, so the DLL is expected in
+    %APPDATA%\Autodesk\Revit\Addins\2025\CableTrayHanger\
+  Use an absolute path instead if you deploy it elsewhere.
+-->
+<RevitAddIns>
+  <AddIn Type="Application">
+    <Name>Cable Tray Hanger</Name>
+    <Assembly>CableTrayHanger\CableTrayHanger.Addin.dll</Assembly>
+    <AddInId>94d8e9e6-e546-48e2-8bd9-a32ce67ea409</AddInId>
+    <FullClassName>CableTrayHanger.Addin.CableTrayHangerApplication</FullClassName>
+    <VendorId>CTHG</VendorId>
+    <VendorDescription>Cable Tray Hanger Configuration System</VendorDescription>
+  </AddIn>
+</RevitAddIns>

@@ -1,0 +1,67 @@
+name: Revit Add-in
+
+# windows-latest, not ubuntu: the add-in targets net8.0-windows with UseWPF,
+# which needs the Windows Desktop SDK.
+on:
+  push:
+    paths:
+      - "revit-addin/**"
+      - ".github/workflows/revit-addin.yml"
+  pull_request:
+    paths:
+      - "revit-addin/**"
+      - ".github/workflows/revit-addin.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: revit-addin
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Restore
+        run: dotnet restore CableTrayHanger.sln
+
+      - name: Build
+        run: dotnet build CableTrayHanger.sln -c Release --no-restore
+
+      # Compares decoded pixels, not file bytes, so it is not upset by zlib
+      # producing different compression on a different machine.
+      - name: Check the icons match generate_icons.py
+        run: python tools/generate_icons.py --check
+
+      # Lay the release out the way CableTrayHanger.addin expects: the manifest
+      # at the root of the Addins folder, the DLL in a subfolder beside it.
+      - name: Stage the deployment folder
+        shell: bash
+        run: |
+          out=src/CableTrayHanger.Addin/bin/Release
+          mkdir -p stage/CableTrayHanger
+          cp "$out/CableTrayHanger.Addin.dll" stage/CableTrayHanger/
+          cp "$out/CableTrayHanger.Addin.pdb" stage/CableTrayHanger/
+          cp "$out/CableTrayHanger.Addin.deps.json" stage/CableTrayHanger/ 2>/dev/null || true
+          cp src/CableTrayHanger.Addin/CableTrayHanger.addin stage/
+          ls -R stage
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CableTrayHanger-Revit2025
+          path: revit-addin/stage/
+          if-no-files-found: error
