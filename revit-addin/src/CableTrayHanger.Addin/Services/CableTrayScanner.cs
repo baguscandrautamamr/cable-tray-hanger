@@ -48,6 +48,7 @@ internal static class CableTrayScanner
         var elbowCandidates = fittings.Where(fitting => !hangerIds.Contains(fitting.Id));
 
         var existing = CountHangersPerTray(trays, hangerInstances, settings.HangerHeightParameter);
+        var (families, matchedKeyword) = FindHangerFamilies(document, keyword);
 
         return new ScanPayload
         {
@@ -55,7 +56,9 @@ internal static class CableTrayScanner
             ViewName = view.Name,
             CableTrays = trays.Select(tray => ToDto(document, tray, existing)).ToList(),
             Elbows = FindElbows(trays, elbowCandidates),
-            HangerFamilies = FindHangerFamilies(document, keyword),
+            HangerFamilies = families,
+            HangerFamilyKeyword = keyword,
+            HangerFamiliesMatchedKeyword = matchedKeyword,
             Timestamp = DateTime.UtcNow.ToString("o"),
         };
     }
@@ -233,24 +236,56 @@ internal static class CableTrayScanner
     /// Revit has no hanger category, and offices name these families their own
     /// way, so the match is a configurable substring of the family name.
     /// </summary>
-    private static List<HangerFamilyDto> FindHangerFamilies(Document document, string keyword)
+    /// <summary>
+    /// The families offered in the web app's Hanger Family dropdown.
+    ///
+    /// The keyword narrows the list, but it must never empty it. A hanger
+    /// family called "ACT_E_SUPPORT HANGING CABEL TRAY" does not contain
+    /// "hanger", and a keyword saved before the family was renamed goes on
+    /// matching nothing — either way the dropdown read "No hanger families
+    /// scanned yet" with no way forward, and nothing in the model was wrong.
+    ///
+    /// So a keyword that matches nothing falls back to every loaded family and
+    /// says so, which leaves the person a list to pick from instead of a dead
+    /// end. Only the narrowed match is used to recognise hangers already in the
+    /// model — falling back there would class every fitting as a hanger.
+    /// </summary>
+    private static (List<HangerFamilyDto> Families, bool MatchedKeyword) FindHangerFamilies(
+        Document document,
+        string keyword)
     {
-        var symbols = new FilteredElementCollector(document)
+        var all = new FilteredElementCollector(document)
             .OfClass(typeof(FamilySymbol))
-            .OfType<FamilySymbol>();
+            .OfType<FamilySymbol>()
+            .Where(symbol => symbol.Family is not null)
+            .ToList();
 
-        if (!string.IsNullOrWhiteSpace(keyword))
-        {
-            symbols = symbols.Where(symbol =>
-                symbol.Family.Name.Contains(keyword, StringComparison.OrdinalIgnoreCase));
-        }
+        var matched = string.IsNullOrWhiteSpace(keyword)
+            ? all
+            : all.Where(symbol =>
+                symbol.Family.Name.Contains(keyword, StringComparison.OrdinalIgnoreCase)).ToList();
 
-        return symbols
+        var matchedKeyword = matched.Count > 0;
+
+        return (Describe(matchedKeyword ? matched : all), matchedKeyword);
+    }
+
+    /// <summary>
+    /// Groups symbols by family, carrying the category so two similarly named
+    /// families can be told apart in a dropdown — a hanger built as a cable
+    /// tray fitting looks like every other fitting by name alone.
+    /// </summary>
+    private static List<HangerFamilyDto> Describe(List<FamilySymbol> symbols) =>
+        symbols
             .GroupBy(symbol => symbol.Family.Name)
-            .Select(group => new HangerFamilyDto { Name = group.Key, TypeCount = group.Count() })
+            .Select(group => new HangerFamilyDto
+            {
+                Name = group.Key,
+                TypeCount = group.Count(),
+                Category = group.First().Category?.Name ?? "",
+            })
             .OrderBy(family => family.Name)
             .ToList();
-    }
 
     public static Curve? GetCurve(Element element) =>
         (element.Location as LocationCurve)?.Curve;

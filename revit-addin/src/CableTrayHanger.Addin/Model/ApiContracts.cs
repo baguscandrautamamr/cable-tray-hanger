@@ -44,6 +44,12 @@ internal sealed class HangerFamilyDto
 {
     public string Name { get; set; } = "";
     public int TypeCount { get; set; }
+
+    /// <summary>
+    /// Revit category, so a hanger built as a cable tray fitting can be told
+    /// apart from the elbows and transitions it sits among in the dropdown.
+    /// </summary>
+    public string Category { get; set; } = "";
 }
 
 internal sealed class ElbowDto
@@ -77,6 +83,18 @@ internal sealed class ScanPayload
     public List<CableTrayDto> CableTrays { get; set; } = [];
     public List<HangerFamilyDto> HangerFamilies { get; set; } = [];
     public List<ElbowDto> Elbows { get; set; } = [];
+
+    /// <summary>The keyword the family list was narrowed by, for the web app to quote back.</summary>
+    public string HangerFamilyKeyword { get; set; } = "";
+
+    /// <summary>
+    /// False when the keyword matched nothing and HangerFamilies is therefore
+    /// every loaded family rather than a narrowed list. The web app says so, so
+    /// an unhelpful keyword looks like an unhelpful keyword instead of an empty
+    /// dropdown.
+    /// </summary>
+    public bool HangerFamiliesMatchedKeyword { get; set; }
+
     public string Timestamp { get; set; } = "";
 }
 

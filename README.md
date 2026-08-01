@@ -86,6 +86,7 @@ instead:
 | `supabase/migrations/0002-addin-api-keys.sql` | `addin_api_keys` table for keys generated in the web app |
 | `supabase/migrations/0003-cable-tray-scans.sql` | `cable_tray_scans` table, so the add-in's scan reaches the config form |
 | `supabase/migrations/0004-whole-scan-configs.sql` | a config covers every tray in a scan, and carries the hanger height |
+| `supabase/migrations/0005-scan-family-keyword.sql` | records the family keyword, so an empty dropdown can be explained |
 
 ## Commands
 
@@ -186,6 +187,20 @@ them.
 Both parameter names (`TRAY_W` and `Height Support` by default) are settings in
 the add-in's dialog, because every office's hanger family names them
 differently. Blank switches that write off.
+
+### Finding the hanger family
+
+Revit has no hanger category — a hanger is often built as a *Cable Tray
+Fitting*, indistinguishable from an elbow except by name. The add-in therefore
+narrows the family list with a keyword (**Hanger family keyword**, `hang` by
+default, which matches Hanger, Hangers and HANGING alike).
+
+A keyword that matches nothing does **not** empty the dropdown: the add-in
+sends every loaded family instead and flags that it did, and the web app says
+which keyword failed. Each entry shows its Revit category, so a hanger sitting
+among the fittings can be picked out. Only a real keyword match is used to
+recognise hangers already in the model — falling back there would class every
+fitting as a hanger.
 
 ## Deploy
 

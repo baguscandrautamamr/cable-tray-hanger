@@ -138,6 +138,12 @@ CREATE TABLE cable_tray_scans (
   hanger_families JSONB NOT NULL,
   elbows JSONB NOT NULL,
 
+  -- What the family list was narrowed by, and whether that keyword matched
+  -- anything. When it matches nothing the add-in sends every loaded family
+  -- instead, so the dropdown is never an empty dead end.
+  hanger_family_keyword TEXT,
+  hanger_families_matched_keyword BOOLEAN,
+
   -- When Revit took the scan, as opposed to when the row was written.
   scanned_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()

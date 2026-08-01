@@ -90,7 +90,7 @@ internal sealed class AddinSettings
                 var loaded = JsonSerializer.Deserialize<AddinSettings>(File.ReadAllText(SettingsPath));
                 if (loaded is not null)
                 {
-                    return loaded;
+                    return Migrate(loaded);
                 }
             }
         }
@@ -101,6 +101,29 @@ internal sealed class AddinSettings
         }
 
         return new AddinSettings();
+    }
+
+    /// <summary>The family keyword this add-in used to ship with.</summary>
+    private const string SupersededKeyword = "hanger";
+
+    /// <summary>
+    /// Brings a settings file written by an earlier build up to date.
+    ///
+    /// A new default only reaches a fresh install: everyone who ever opened the
+    /// dialog has the old value saved under %APPDATA% and keeps it forever. The
+    /// old "hanger" matches neither "HANGING" nor a family renamed since, which
+    /// showed up as an empty Hanger Family dropdown with nothing visibly wrong.
+    /// Only the exact superseded default is replaced, so a keyword somebody
+    /// deliberately typed is left alone.
+    /// </summary>
+    private static AddinSettings Migrate(AddinSettings settings)
+    {
+        if (string.Equals(settings.HangerFamilyKeyword, SupersededKeyword, StringComparison.OrdinalIgnoreCase))
+        {
+            settings.HangerFamilyKeyword = new AddinSettings().HangerFamilyKeyword;
+        }
+
+        return settings;
     }
 
     public void Save()

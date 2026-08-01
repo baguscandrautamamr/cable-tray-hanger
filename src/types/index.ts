@@ -34,6 +34,12 @@ export interface CableTray {
 export interface HangerFamily {
   name: string;
   type_count: number;
+
+  /**
+   * Revit category. A hanger built as a cable tray fitting is indistinguishable
+   * from an elbow by name alone, so the dropdown shows this alongside it.
+   */
+  category?: string;
 }
 
 export interface Elbow {
@@ -59,6 +65,16 @@ export interface ScanPayload {
   cable_trays: CableTray[];
   hanger_families: HangerFamily[];
   elbows: Elbow[];
+
+  /** The keyword the family list was narrowed by. */
+  hanger_family_keyword?: string;
+
+  /**
+   * False when that keyword matched nothing, so `hanger_families` is every
+   * loaded family rather than a narrowed list.
+   */
+  hanger_families_matched_keyword?: boolean;
+
   timestamp: string;
 }
 
@@ -70,6 +86,8 @@ export interface ScanRecord {
   cable_trays: CableTray[];
   hanger_families: HangerFamily[];
   elbows: Elbow[];
+  hanger_family_keyword: string | null;
+  hanger_families_matched_keyword: boolean | null;
   scanned_at: string | null;
   created_at: string;
 }
