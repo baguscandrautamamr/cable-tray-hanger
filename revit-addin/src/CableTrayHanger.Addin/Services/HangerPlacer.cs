@@ -132,7 +132,11 @@ internal static class HangerPlacer
             return;
         }
 
-        var angle = XYZ.BasisX.AngleOnPlaneTo(heading.Normalize(), XYZ.BasisZ);
+        // Plus whatever the family needs on top: one authored across the tray
+        // sits 90 degrees from one authored along it, and the model does not
+        // say which you have.
+        var angle = XYZ.BasisX.AngleOnPlaneTo(heading.Normalize(), XYZ.BasisZ)
+                    + (settings.HangerRotationDegrees * Math.PI / 180.0);
 
         if (Math.Abs(angle) < 1e-9)
         {
@@ -278,21 +282,97 @@ internal static class HangerPlacer
         }
     }
 
-    /// <summary>Finds the family type the web app named. Falls back to any type in a matching family.</summary>
-    public static FamilySymbol? FindSymbol(Document document, string familyName)
+    /// <summary>Every type of the family the web app named, most exact match first.</summary>
+    public static List<FamilySymbol> FindFamilySymbols(Document document, string familyName)
     {
         var symbols = new FilteredElementCollector(document)
             .OfClass(typeof(FamilySymbol))
             .OfType<FamilySymbol>()
+            .Where(symbol => symbol.Family is not null)
             .ToList();
 
-        return symbols.FirstOrDefault(s =>
-                   string.Equals(s.Family.Name, familyName, StringComparison.OrdinalIgnoreCase))
-               ?? symbols.FirstOrDefault(s =>
-                   string.Equals($"{s.Family.Name} - {s.Name}", familyName, StringComparison.OrdinalIgnoreCase))
-               ?? symbols.FirstOrDefault(s =>
-                   s.Family.Name.Contains(familyName, StringComparison.OrdinalIgnoreCase));
+        var exact = symbols
+            .Where(s => string.Equals(s.Family.Name, familyName, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        if (exact.Count > 0)
+        {
+            return exact;
+        }
+
+        return symbols
+            .Where(s => s.Family.Name.Contains(familyName, StringComparison.OrdinalIgnoreCase)
+                        || string.Equals($"{s.Family.Name} - {s.Name}", familyName, StringComparison.OrdinalIgnoreCase))
+            .ToList();
     }
+
+    /// <summary>How close a type's width must be to the tray's to count as its size.</summary>
+    private const double WidthMatchToleranceMm = 1.0;
+
+    /// <summary>
+    /// Picks the family type built for this tray width.
+    ///
+    /// A type per width — 100, 200 … 1000 — is the better way to size a hanger
+    /// than writing a dimension onto each instance. Choosing a type cannot go
+    /// wrong in units, it schedules properly, and the family author decides
+    /// what a 600 hanger looks like rather than a parameter being pushed at it.
+    ///
+    /// Matched first on the type's own width parameter, then on a number in its
+    /// name ("SUPPORT HANGING 600"), and failing both the first type is used
+    /// and the width written onto the instance as before — so a family with one
+    /// type still works.
+    /// </summary>
+    public static FamilySymbol? PickSymbolForWidth(
+        IReadOnlyList<FamilySymbol> symbols,
+        double trayWidthMm,
+        AddinSettings settings)
+    {
+        if (symbols.Count == 0)
+        {
+            return null;
+        }
+
+        if (trayWidthMm > 0 && symbols.Count > 1)
+        {
+            var byParameter = symbols.FirstOrDefault(symbol =>
+                ParameterUnits.TryGetMillimetres(symbol.LookupParameter(settings.TrayWidthParameter))
+                    is { } width
+                && Math.Abs(width - trayWidthMm) <= WidthMatchToleranceMm);
+
+            if (byParameter is not null)
+            {
+                return byParameter;
+            }
+
+            var byName = symbols.FirstOrDefault(symbol => NameStatesWidth(symbol.Name, trayWidthMm));
+
+            if (byName is not null)
+            {
+                return byName;
+            }
+        }
+
+        return symbols[0];
+    }
+
+    /// <summary>True when a whole number in the type name is this width in mm.</summary>
+    private static bool NameStatesWidth(string typeName, double trayWidthMm)
+    {
+        var wanted = (int)Math.Round(trayWidthMm);
+
+        foreach (var run in typeName.Split(NonDigits, StringSplitOptions.RemoveEmptyEntries))
+        {
+            if (int.TryParse(run, out var value) && value == wanted)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static readonly char[] NonDigits =
+        [' ', '-', '_', 'x', 'X', 'W', 'w', '(', ')', '/', ',', '.', ':', '=', '\t'];
 
     /// <summary>Resolves the tray id the web app stored (a Revit ElementId).</summary>
     public static Element? FindCableTray(Document document, long cableTrayId) =>

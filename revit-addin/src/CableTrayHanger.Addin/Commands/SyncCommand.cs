@@ -73,7 +73,9 @@ public sealed class SyncCommand : IExternalCommand
 
         // Resolve everything before opening the transaction, so a lookup failure
         // leaves no empty undo entry behind.
-        if (HangerPlacer.FindSymbol(document, config.HangerFamilyName) is not { } symbol)
+        var symbols = HangerPlacer.FindFamilySymbols(document, config.HangerFamilyName);
+
+        if (symbols.Count == 0)
         {
             message = $"Hanger family '{config.HangerFamilyName}' is not loaded in this model.";
             return Result.Failed;
@@ -105,6 +107,10 @@ public sealed class SyncCommand : IExternalCommand
 
         var placed = 0;
 
+        // Which family type each tray width resolved to, so the dialog can show
+        // that a 600 tray really did get the 600 type.
+        var typesUsed = new SortedSet<string>();
+
         // One transaction for the whole run: a half-placed model is worse than
         // an unplaced one, and a single undo should take all of it back.
         using (var transaction = new Transaction(document, $"Place {config.TotalHangers} hangers"))
@@ -113,6 +119,18 @@ public sealed class SyncCommand : IExternalCommand
 
             foreach (var (tray, element) in resolved)
             {
+                // One type per width is the family author's job; picking the
+                // right one is ours.
+                var symbol = HangerPlacer.PickSymbolForWidth(symbols, tray.TrayWidthMm, settings);
+
+                if (symbol is null)
+                {
+                    failures.Add($"{tray.CableTrayName}: no type available in the hanger family.");
+                    continue;
+                }
+
+                typesUsed.Add($"{Math.Round(tray.TrayWidthMm)}mm → {symbol.Name}");
+
                 var outcome = HangerPlacer.Place(
                     document, element, symbol, tray, config.HangerHeightMm, settings);
 
@@ -140,7 +158,20 @@ public sealed class SyncCommand : IExternalCommand
 
         if (config.HangerHeightMm is > 0)
         {
-            summary += $"\n\nHeight set to {config.HangerHeightMm:0.##}mm; width follows each tray.";
+            summary += $"\n\nHeight set to {config.HangerHeightMm:0.##}mm.";
+        }
+
+        if (typesUsed.Count > 0)
+        {
+            summary += $"\n\nType used per tray width:\n  {string.Join("\n  ", typesUsed)}";
+
+            if (symbols.Count == 1)
+            {
+                summary += $"\n\nThis family has one type, so the width was written onto each "
+                           + $"instance instead. A type per width (100…1000) is steadier — the "
+                           + $"add-in picks it by the type's {settings.TrayWidthParameter} value, "
+                           + "or by a number in the type name.";
+            }
         }
 
         if (!allPlaced)

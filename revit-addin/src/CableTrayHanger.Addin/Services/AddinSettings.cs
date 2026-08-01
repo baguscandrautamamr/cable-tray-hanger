@@ -63,6 +63,17 @@ internal sealed class AddinSettings
     public string HangerHeightParameter { get; set; } = "Height Support";
 
     /// <summary>
+    /// Degrees to turn a hanger after aligning it with the run.
+    ///
+    /// A family authored to sit across the tray needs 90 from a family authored
+    /// to sit along it, and nothing in the model says which one you have. 90 is
+    /// the default because a hanger normally straddles the tray. If they come
+    /// out facing the wrong way, this is the one number to change.
+    /// </summary>
+    [JsonPropertyName("hangerRotationDegrees")]
+    public double HangerRotationDegrees { get; set; } = 90;
+
+    /// <summary>
     /// ProjectName counts: the server files a scan under it and rejects a
     /// payload without one, and Sync Hangers polls by it. Leaving it out here
     /// turned a blank field into a puzzling 400 from the server rather than the

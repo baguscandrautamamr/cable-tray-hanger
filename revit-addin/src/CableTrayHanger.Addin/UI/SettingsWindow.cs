@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Interop;
@@ -30,6 +31,7 @@ internal sealed class SettingsWindow : Window
     private readonly TextBox _keyword = new();
     private readonly TextBox _widthParameter = new();
     private readonly TextBox _heightParameter = new();
+    private readonly TextBox _rotation = new();
     private readonly TextBlock _status = new() { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 4, 0, 0) };
     private readonly Button _testButton = new() { Content = "Test connection", Padding = new Thickness(12, 4, 12, 4) };
     private readonly Button _saveButton = new() { Content = "Save", Padding = new Thickness(20, 4, 20, 4), IsDefault = true };
@@ -52,6 +54,7 @@ internal sealed class SettingsWindow : Window
         _keyword.Text = settings.HangerFamilyKeyword;
         _widthParameter.Text = settings.TrayWidthParameter;
         _heightParameter.Text = settings.HangerHeightParameter;
+        _rotation.Text = settings.HangerRotationDegrees.ToString(CultureInfo.CurrentCulture);
 
         // Keep the two key editors in step so either can be the source of truth.
         _apiKeyMasked.PasswordChanged += (_, _) =>
@@ -137,6 +140,13 @@ internal sealed class SettingsWindow : Window
             _heightParameter,
             "Instance parameter holding the drop height, e.g. \"Height Support\". Set only on "
             + "hangers this add-in creates, so a height revised in Revit is never overwritten."));
+
+        root.Children.Add(Labelled(
+            "Hanger rotation (degrees)",
+            _rotation,
+            "Turn applied after aligning the hanger with the run. A family drawn across the tray "
+            + "needs 90 where one drawn along it needs 0. If the hangers face the wrong way, "
+            + "change this."));
 
         var buttons = new DockPanel { Margin = new Thickness(0, 8, 0, 0) };
         DockPanel.SetDock(_testButton, Dock.Left);
@@ -272,6 +282,14 @@ internal sealed class SettingsWindow : Window
         _settings.HangerFamilyKeyword = _keyword.Text.Trim();
         _settings.TrayWidthParameter = _widthParameter.Text.Trim();
         _settings.HangerHeightParameter = _heightParameter.Text.Trim();
+
+        if (!double.TryParse(_rotation.Text.Trim(), NumberStyles.Float, CultureInfo.CurrentCulture, out var degrees))
+        {
+            Report("Hanger rotation must be a number of degrees, e.g. 0 or 90.", Brushes.Firebrick);
+            return;
+        }
+
+        _settings.HangerRotationDegrees = degrees;
 
         try
         {
