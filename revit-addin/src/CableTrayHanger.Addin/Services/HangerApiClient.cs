@@ -71,18 +71,62 @@ internal sealed class HangerApiClient(AddinSettings settings)
 
             try
             {
+                using var document = JsonDocument.Parse(body);
+                var root = document.RootElement;
+
+                // Deserializing straight away would accept *any* JSON object:
+                // unknown properties are ignored, so an error payload would
+                // silently become an all-default report claiming the server
+                // said nothing. Check it really is a health report first.
+                if (root.ValueKind != JsonValueKind.Object
+                    || !root.TryGetProperty("ok", out _)
+                    || !root.TryGetProperty("env", out _))
+                {
+                    throw new ApiException(NotAHealthReport(response, body));
+                }
+
                 return JsonSerializer.Deserialize<HealthDto>(body, Json)
                        ?? throw new ApiException("The server returned an empty health response.");
             }
             catch (JsonException)
             {
-                // Not our endpoint: an old deployment without /api/health, or a
+                // Not JSON at all: an old deployment without /api/health, or a
                 // proxy/login page sitting in front of it.
-                throw new ApiException(
-                    $"{(int)response.StatusCode} {response.ReasonPhrase} — that URL did not return a "
-                    + $"health response. Check the base URL, and that the deployment is up to date.");
+                throw new ApiException(NotAHealthReport(response, body));
             }
         }
+    }
+
+    /// <summary>
+    /// The URL answered, but with something other than a health report. Say
+    /// what came back instead of pretending the report was empty.
+    /// </summary>
+    private static string NotAHealthReport(HttpResponseMessage response, string body)
+    {
+        var status = $"{(int)response.StatusCode} {response.ReasonPhrase}";
+
+        try
+        {
+            using var document = JsonDocument.Parse(body);
+
+            // Vercel's shape when a function crashes before running:
+            // {"error":{"code":"500","message":"A server error has occurred"}}
+            if (document.RootElement.TryGetProperty("error", out var error)
+                && error.TryGetProperty("message", out var nested))
+            {
+                return $"{status} — the deployment returned an error instead of a health report: "
+                       + $"{nested.GetString()}.\n\nThe serverless function crashed before it ran. "
+                       + "Open the Vercel dashboard → your project → Deployments → the current "
+                       + "deployment → Functions/Logs; the stack trace there names the cause.";
+            }
+        }
+        catch (JsonException)
+        {
+            // Fall through to the generic message.
+        }
+
+        return $"{status} — {response.RequestMessage?.RequestUri} did not return a health report. "
+               + "Check the base URL points at this app, and that the deployment is up to date.";
     }
 
     /// <summary>POST /api/scan-cable-tray — hand the model contents to the web app.</summary>
