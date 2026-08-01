@@ -51,6 +51,10 @@ internal static class HangerPlacer
         var placed = 0;
         var failures = new List<string>();
 
+        // Recorded once per tray, not once per hanger: a parameter that lands
+        // wrong lands wrong for all fifteen of them.
+        string? dimensionProblem = null;
+
         foreach (var position in tray.PlacementPositions)
         {
             var offsetFt = UnitUtils.ConvertToInternalUnits(position.PosM, UnitTypeId.Meters);
@@ -72,7 +76,7 @@ internal static class HangerPlacer
                     continue;
                 }
 
-                ApplyDimensions(instance, tray.TrayWidthMm, hangerHeightMm, settings);
+                dimensionProblem ??= ApplyDimensions(instance, tray.TrayWidthMm, hangerHeightMm, settings);
                 AlignToRun(document, instance, curve, normalized, point);
                 placed++;
             }
@@ -82,6 +86,11 @@ internal static class HangerPlacer
                 // overload. Report it rather than silently placing fewer.
                 failures.Add($"{position.Reason} at {position.PosM:0.##}m: {ex.Message}");
             }
+        }
+
+        if (dimensionProblem is not null)
+        {
+            failures.Add(dimensionProblem);
         }
 
         return new PlacementOutcome(placed, failures);
@@ -141,22 +150,76 @@ internal static class HangerPlacer
     /// silently — every office names these differently, which is why both names
     /// are settings rather than constants.
     /// </summary>
-    private static void ApplyDimensions(
+    /// <summary>Returns a description of anything that did not land, or null.</summary>
+    private static string? ApplyDimensions(
         FamilyInstance instance,
         double trayWidthMm,
         double? hangerHeightMm,
         AddinSettings settings)
     {
-        if (trayWidthMm > 0 && !string.IsNullOrWhiteSpace(settings.TrayWidthParameter))
+        var problems = new List<string>();
+
+        if (trayWidthMm > 0)
         {
-            ParameterUnits.TrySetMillimetres(
-                instance.LookupParameter(settings.TrayWidthParameter), trayWidthMm);
+            Verify(instance, settings.TrayWidthParameter, trayWidthMm, problems);
         }
 
-        if (hangerHeightMm is > 0 && !string.IsNullOrWhiteSpace(settings.HangerHeightParameter))
+        if (hangerHeightMm is > 0)
         {
-            ParameterUnits.TrySetMillimetres(
-                instance.LookupParameter(settings.HangerHeightParameter), hangerHeightMm.Value);
+            Verify(instance, settings.HangerHeightParameter, hangerHeightMm.Value, problems);
+        }
+
+        return problems.Count == 0 ? null : string.Join("; ", problems);
+    }
+
+    /// <summary>
+    /// Millimetres a written value may differ from the requested one and still
+    /// count as landed — enough to absorb Revit's internal-unit round trip.
+    /// </summary>
+    private const double ToleranceMm = 0.5;
+
+    /// <summary>
+    /// Writes a dimension and reads it back.
+    ///
+    /// The read-back is the point. A unit conversion that goes the wrong way
+    /// does not throw — it writes 600 where 600mm was meant and Revit reads it
+    /// as 600 feet, so the family comes out 182.88m wide and nothing anywhere
+    /// says a word. Checking what actually landed turns that into a sentence
+    /// naming the parameter and both numbers.
+    /// </summary>
+    private static void Verify(
+        FamilyInstance instance,
+        string parameterName,
+        double expectedMm,
+        List<string> problems)
+    {
+        if (string.IsNullOrWhiteSpace(parameterName))
+        {
+            return;
+        }
+
+        var parameter = instance.LookupParameter(parameterName);
+
+        if (parameter is null)
+        {
+            // The family simply does not have it; that is a configuration
+            // choice, not a fault.
+            return;
+        }
+
+        if (!ParameterUnits.TrySetMillimetres(parameter, expectedMm))
+        {
+            problems.Add($"'{parameterName}' could not be set (read-only, or not a number).");
+            return;
+        }
+
+        var actual = ParameterUnits.TryGetMillimetres(instance.LookupParameter(parameterName));
+
+        if (actual is null || Math.Abs(actual.Value - expectedMm) > ToleranceMm)
+        {
+            problems.Add(
+                $"'{parameterName}' was set to {expectedMm:0.##}mm but reads back as "
+                + $"{actual?.ToString("0.##") ?? "nothing"}mm.");
         }
     }
 
