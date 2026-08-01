@@ -27,24 +27,33 @@ npm run dev
 | `VITE_PROJECT_NAME` | frontend | Default Revit project name shown in UI |
 | `SUPABASE_URL` | Vercel (server) | Same Supabase project URL |
 | `SUPABASE_SERVICE_ROLE_KEY` | Vercel (server) | Service role key — never expose to the client |
-| `ADDIN_API_KEY` | Vercel (server) | Shared secret the Revit add-in sends as `x-api-key` |
+| `ADDIN_API_KEY` | Vercel (server), optional | Fallback shared secret — see below |
 
-Set the server variables in Vercel under **Settings → Environment Variables**
-(Production/Preview/Development scopes), not in a committed file. Generate the
-add-in key with `openssl rand -hex 32`; without it the add-in endpoints refuse
-every request.
+The two `SUPABASE_*` variables are **required**. Set them in Vercel under
+**Settings → Environment Variables** (Production/Preview/Development scopes),
+not in a committed file. Without them every `api/` route fails.
+
+`ADDIN_API_KEY` is optional and usually unnecessary. Add-in keys are normally
+generated per user in the web app (**API Keys** in the header), which is the
+recommended path — they are revocable, attributable, and scoped to the person
+who created them. The environment variable exists only for installs with no
+account behind them, such as a shared workstation image or a smoke test; it is
+not tied to a user and is therefore *not* scoped to one account's configs.
 
 ## Database
 
 Run `supabase/schema.sql` in the Supabase SQL editor to create the
-`hanger_configs` and `hanger_placement_history` tables with their RLS policies,
-constraints and the `confirm_placement` function. Then enable email/password
-auth under **Authentication → Providers**.
+`hanger_configs`, `hanger_placement_history` and `addin_api_keys` tables with
+their RLS policies, constraints and the `confirm_placement` function. Then
+enable email/password auth under **Authentication → Providers**.
 
-For a project already running the original schema, apply
-`supabase/migrations/0001-hardening.sql` instead — it converts the timestamp
-columns to `TIMESTAMPTZ`, adds the status/spacing constraints, and installs the
-`updated_at` trigger and `confirm_placement`.
+For a project already running an earlier schema, apply the migrations in order
+instead:
+
+| Migration | What it does |
+|---|---|
+| `supabase/migrations/0001-hardening.sql` | `TIMESTAMPTZ` columns, status/spacing constraints, `updated_at` trigger, `confirm_placement` |
+| `supabase/migrations/0002-addin-api-keys.sql` | `addin_api_keys` table for keys generated in the web app |
 
 ## Commands
 
@@ -65,14 +74,39 @@ endpoint the browser calls takes the user's Supabase session token.
 
 | Endpoint | Auth | Purpose |
 |---|---|---|
+| `GET /api/health` | none | Reports what is configured — see Troubleshooting |
 | `POST /api/scan-cable-tray` | `x-api-key` | Receive scan data from the Revit add-in |
 | `POST /api/hanger-config` | `Authorization: Bearer <supabase access token>` | Save a config and calculate hanger placement |
 | `GET /api/latest-config` | `x-api-key` | Add-in polls this for a pending config |
 | `PATCH /api/config-status/:id` | `x-api-key` | Add-in confirms placement after sync |
+| `GET/POST/DELETE /api/addin-keys` | `Authorization: Bearer <supabase access token>` | List, create and revoke add-in keys |
 
 `POST /api/hanger-config` sets the config's owner from the verified token, so
 the request body carries no user id. `PATCH /api/config-status/:id` accepts a
 `status` of `SYNCED` or `FAILED` only.
+
+An `x-api-key` belongs to the account that generated it, so `latest-config` and
+`config-status` only see that account's configs. The secret is stored as a
+SHA-256 hash and shown exactly once, at creation.
+
+## Troubleshooting
+
+**`{"error":{"code":"500","message":"A server error has occurred"}}`** — that is
+Vercel's own error, not ours, and it means the function crashed before running.
+Almost always a missing environment variable.
+
+Ask the deployment what it is missing:
+
+```bash
+curl https://<your-deployment>/api/health
+```
+
+It answers 200 when healthy and 503 when not, with the same body either way,
+and a `hints` array saying what to fix. Add `-H "x-api-key: <key>"` and it also
+reports whether that key is accepted. The add-in's **Settings → Test
+connection** button calls exactly this.
+
+The response contains only booleans — never a value, a URL or a key.
 
 ## Known gaps
 

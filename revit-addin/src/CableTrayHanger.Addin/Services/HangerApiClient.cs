@@ -29,6 +29,62 @@ internal sealed class HangerApiClient(AddinSettings settings)
         DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull,
     };
 
+    /// <summary>
+    /// GET /api/health — what the deployment has configured. Answers 503 rather
+    /// than 200 when something is missing, so an unsuccessful status is still a
+    /// usable result here and must not be treated as an error.
+    /// </summary>
+    public static async Task<HealthDto> CheckHealthAsync(string apiBaseUrl, string? apiKey)
+    {
+        if (string.IsNullOrWhiteSpace(apiBaseUrl))
+        {
+            throw new ApiException("Enter the API base URL first.");
+        }
+
+        if (!Uri.TryCreate(apiBaseUrl, UriKind.Absolute, out var baseUri)
+            || (baseUri.Scheme != Uri.UriSchemeHttp && baseUri.Scheme != Uri.UriSchemeHttps))
+        {
+            throw new ApiException($"'{apiBaseUrl}' is not a valid http(s) URL.");
+        }
+
+        using var request = new HttpRequestMessage(HttpMethod.Get, new Uri(baseUri, "/api/health"));
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+
+        if (!string.IsNullOrWhiteSpace(apiKey))
+        {
+            request.Headers.Add("x-api-key", apiKey);
+        }
+
+        HttpResponseMessage response;
+        try
+        {
+            response = await Http.SendAsync(request).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        {
+            throw new ApiException($"Could not reach {baseUri.Host}: {ex.Message}");
+        }
+
+        using (response)
+        {
+            var body = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+
+            try
+            {
+                return JsonSerializer.Deserialize<HealthDto>(body, Json)
+                       ?? throw new ApiException("The server returned an empty health response.");
+            }
+            catch (JsonException)
+            {
+                // Not our endpoint: an old deployment without /api/health, or a
+                // proxy/login page sitting in front of it.
+                throw new ApiException(
+                    $"{(int)response.StatusCode} {response.ReasonPhrase} — that URL did not return a "
+                    + $"health response. Check the base URL, and that the deployment is up to date.");
+            }
+        }
+    }
+
     /// <summary>POST /api/scan-cable-tray — hand the model contents to the web app.</summary>
     public void SubmitScan(ScanPayload payload)
     {
@@ -111,15 +167,29 @@ internal sealed class HangerApiClient(AddinSettings settings)
             }
         });
 
-    /// <summary>Pull the API's `message` out of an error body when there is one.</summary>
+    /// <summary>Pull a human-readable message out of an error body when there is one.</summary>
     private static string Describe(string body)
     {
         try
         {
             using var document = JsonDocument.Parse(body);
-            if (document.RootElement.TryGetProperty("message", out var message))
+            var root = document.RootElement;
+
+            // Our own shape: {"status":"FAILED","message":"..."}
+            if (root.TryGetProperty("message", out var message))
             {
                 return message.GetString() ?? body;
+            }
+
+            // Vercel's platform shape when a function fails to load:
+            // {"error":{"code":"500","message":"A server error has occurred"}}
+            // That means the function crashed on import — almost always a
+            // missing environment variable on the deployment.
+            if (root.TryGetProperty("error", out var error)
+                && error.TryGetProperty("message", out var nested))
+            {
+                return $"{nested.GetString()} (the server function failed to start — "
+                       + "check GET /api/health, and the environment variables in Vercel)";
             }
         }
         catch (JsonException)

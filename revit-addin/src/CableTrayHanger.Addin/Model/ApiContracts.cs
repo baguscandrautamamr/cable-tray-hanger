@@ -60,6 +60,40 @@ internal sealed class LatestConfigDto
     public int TotalHangers { get; set; }
 }
 
+// --- GET /api/health -------------------------------------------------------
+// Answers 200 when healthy and 503 when not, with the same body either way, so
+// the Settings dialog can explain exactly what is wrong.
+
+internal sealed class HealthEnvDto
+{
+    public bool SupabaseUrl { get; set; }
+    public bool SupabaseServiceRoleKey { get; set; }
+    public bool AddinApiKeyFallback { get; set; }
+}
+
+internal sealed class HealthDatabaseDto
+{
+    public bool Reachable { get; set; }
+    public bool HangerConfigsTable { get; set; }
+    public bool AddinApiKeysTable { get; set; }
+}
+
+internal sealed class HealthApiKeyDto
+{
+    public bool Provided { get; set; }
+    public bool Valid { get; set; }
+    public string? Label { get; set; }
+}
+
+internal sealed class HealthDto
+{
+    public bool Ok { get; set; }
+    public HealthEnvDto Env { get; set; } = new();
+    public HealthDatabaseDto Database { get; set; } = new();
+    public HealthApiKeyDto ApiKey { get; set; } = new();
+    public List<string> Hints { get; set; } = [];
+}
+
 /// <summary>Body of PATCH /api/config-status/:id.</summary>
 internal sealed class ConfigStatusUpdate
 {

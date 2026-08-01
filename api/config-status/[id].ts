@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { requireAddinKey } from "../_lib/auth";
-import { supabaseAdmin } from "../_lib/supabaseAdmin";
+import { resolveSupabaseAdmin } from "../_lib/supabaseAdmin";
 
 /** Terminal states the add-in may report. Mirrors the CHECK in schema.sql. */
 const ALLOWED_STATUSES = ["SYNCED", "FAILED"];
@@ -11,7 +11,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(405).json({ status: "FAILED", message: "Method not allowed" });
   }
 
-  if (!requireAddinKey(req, res)) return;
+  const caller = await requireAddinKey(req, res);
+  if (!caller) return;
+
+  const supabaseAdmin = resolveSupabaseAdmin(res);
+  if (!supabaseAdmin) return;
 
   const { id } = req.query;
   const { status, hangers_placed, sync_timestamp, synced_by } = req.body ?? {};
@@ -37,7 +41,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   const { data: config, error: fetchError } = await supabaseAdmin
     .from("hanger_configs")
-    .select("id")
+    .select("id, created_by")
     .eq("id", id)
     .maybeSingle();
 
@@ -46,6 +50,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   if (!config) {
+    return res.status(404).json({ status: "FAILED", message: "Config not found" });
+  }
+
+  // A key may only confirm placements for configs its owner created. Answering
+  // 404 rather than 403 avoids confirming that someone else's id exists.
+  if (caller.userId && config.created_by !== caller.userId) {
     return res.status(404).json({ status: "FAILED", message: "Config not found" });
   }
 

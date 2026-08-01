@@ -4,6 +4,7 @@ import type { Session } from "@supabase/supabase-js";
 import { isSupabaseConfigured, supabase } from "./services/supabaseClient";
 import Dashboard from "./pages/Dashboard";
 import Config from "./pages/Config";
+import ApiKeys from "./pages/ApiKeys";
 
 const PROJECT_NAME = import.meta.env.VITE_PROJECT_NAME ?? "HBE-ELECTRICAL-E";
 
@@ -36,6 +37,7 @@ function App() {
           path="/config"
           element={<Config session={session} projectName={PROJECT_NAME} />}
         />
+        <Route path="/api-keys" element={<ApiKeys session={session} />} />
       </Routes>
     </BrowserRouter>
   );

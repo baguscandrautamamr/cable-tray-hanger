@@ -51,28 +51,31 @@ If the DLL came from a download, unblock it first
 
 ## Configure
 
-Press **Settings** on the ribbon. It opens
-`%APPDATA%\CableTrayHanger\settings.json`:
+**First, get a key.** In the web app, sign in and open **API Keys** in the
+header. Generate one, name it after the machine, and copy it — it is shown
+once and stored only as a hash, so it cannot be recovered later. Keys are
+revocable and scoped to your account.
 
-```json
-{
-  "apiBaseUrl": "https://cable-tray-hanger.vercel.app",
-  "apiKey": "",
-  "projectName": "HBE-ELECTRICAL-E",
-  "hangerFamilyKeyword": "hanger"
-}
-```
+**Then, in Revit**, press **Settings** on the ribbon:
 
-- `apiKey` must equal `ADDIN_API_KEY` in the Vercel environment. Without it
-  every call comes back 401.
-- `projectName` scopes which configs this model picks up; it has to match the
-  project name the web app was configured with.
-- `hangerFamilyKeyword` is a case-insensitive substring used to find hanger
-  families. Revit has no hanger category and offices name these families their
-  own way, so this is how the add-in narrows the list. Blank means "every
-  loaded family", which is slow in a large model.
+| Field | Meaning |
+|---|---|
+| API base URL | Where the web app is deployed |
+| API key | The key you just generated |
+| Project name | Which project's configs this model syncs with — must match the web app |
+| Hanger family keyword | Case-insensitive part of the family name used to find hangers |
 
-Settings are re-read on every command — no Revit restart needed.
+**Test connection** calls `GET /api/health` and reports, in one sentence,
+whether the server is reachable, whether it is configured, and whether the key
+is accepted — so a bad setting is diagnosed before you try to sync.
+
+The keyword field exists because Revit has no hanger category and offices name
+these families their own way. Blank means "every loaded family", which is slow
+in a large model.
+
+Values are written to `%APPDATA%\CableTrayHanger\settings.json`, so an IT
+deployment can push that file to a machine instead of having someone fill in
+the form. Settings are re-read on every command — no Revit restart needed.
 
 ## Use
 
@@ -80,7 +83,7 @@ Settings are re-read on every command — no Revit restart needed.
 |---|---|
 | **Scan Cable Tray** | Collects the trays, elbows and hanger families visible in the active view and posts them to `/api/scan-cable-tray`. |
 | **Sync Hangers** | Fetches the oldest `PENDING` config for the project, places the hangers, and reports back to `/api/config-status/:id`. |
-| **Settings** | Opens `settings.json`. |
+| **Settings** | Connection settings, with a Test connection button. |
 
 The whole placement happens in one Revit transaction titled
 "Place *N* hangers", so a single undo reverses it. If nothing can be placed the
@@ -102,9 +105,10 @@ Colours are mid-tones so the artwork survives both the light and dark Revit
 
 ## Known limitations
 
-- **Not yet run inside Revit.** The project compiles clean against the Revit
-  2025 reference assemblies, and CI produces the DLL, but nobody has loaded it
-  into Revit and clicked the buttons. Treat the first run as a smoke test.
+- **Only partly exercised inside Revit.** Sync has been run against a real
+  model; the ribbon, the icons and the failure dialogs work. The settings
+  dialog and the key-based auth have been compiled and reviewed but not yet
+  clicked through in Revit.
 - **The web app discards scans.** `POST /api/scan-cable-tray` validates and
   acknowledges the payload but does not store it, so **Scan** currently has no
   visible effect in the browser — the config form still lists placeholder
