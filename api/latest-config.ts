@@ -1,6 +1,9 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { requireAddinKey } from "./_lib/auth";
-import { resolveSupabaseAdmin } from "./_lib/supabaseAdmin";
+import { requireAddinKey } from "./_lib/auth.js";
+import { resolveSupabaseAdmin } from "./_lib/supabaseAdmin.js";
+
+/** Every state a config can be in. Mirrors the CHECK in schema.sql. */
+const CONFIG_STATUSES = ["PENDING", "SYNCED", "FAILED"];
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== "GET") {
@@ -18,6 +21,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   if (!project || typeof project !== "string") {
     return res.status(400).json({ status: "FAILED", message: "Missing project query param" });
+  }
+
+  // A repeated query param (?status=a&status=b) arrives as an array, which
+  // would reach .eq() as a non-scalar. Mirrors the CHECK in schema.sql and the
+  // guard in config-status/[id].ts.
+  if (typeof status !== "string" || !CONFIG_STATUSES.includes(status)) {
+    return res.status(400).json({
+      status: "FAILED",
+      message: `status must be one of: ${CONFIG_STATUSES.join(", ")}`,
+    });
   }
 
   let query = supabaseAdmin

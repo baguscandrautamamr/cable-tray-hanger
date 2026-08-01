@@ -1,6 +1,6 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { resolveSupabaseAdmin } from "./supabaseAdmin";
+import { resolveSupabaseAdmin } from "./supabaseAdmin.js";
 
 /** All generated keys carry this prefix so they are recognisable in a log or a paste. */
 export const API_KEY_PREFIX = "cth_";
@@ -35,7 +35,7 @@ export function apiKeyPreview(key: string): string {
  * first keeps both buffers the same length, which timingSafeEqual requires and
  * which also hides the length of the expected key.
  */
-function secretsMatch(provided: string, expected: string): boolean {
+export function secretsMatch(provided: string, expected: string): boolean {
   return timingSafeEqual(
     createHash("sha256").update(provided).digest(),
     createHash("sha256").update(expected).digest(),

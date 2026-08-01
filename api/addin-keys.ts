@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { apiKeyPreview, generateApiKey, hashApiKey, requireUser } from "./_lib/auth";
-import { resolveSupabaseAdmin } from "./_lib/supabaseAdmin";
+import { apiKeyPreview, generateApiKey, hashApiKey, requireUser } from "./_lib/auth.js";
+import { resolveSupabaseAdmin } from "./_lib/supabaseAdmin.js";
 
 const MAX_ACTIVE_KEYS = 20;
 

@@ -28,8 +28,8 @@ Setting only one pair is the most common way to get this half-working.
 |---|---|---|---|
 | `VITE_SUPABASE_URL` | browser | Supabase project URL | Amber "not configured" banner; login does nothing |
 | `VITE_SUPABASE_ANON_KEY` | browser | **anon / public** key | Same |
-| `VITE_API_BASE_URL` | browser | Base URL of the deployed backend | API calls go to the wrong origin |
-| `VITE_PROJECT_NAME` | browser | Default Revit project name shown in the UI | Falls back to a default |
+| `VITE_API_BASE_URL` | browser | Leave **empty** — see below | API calls go to the wrong origin |
+| `VITE_PROJECT_NAME` | browser | Default Revit project name shown in the UI | Falls back to `HBE-ELECTRICAL-E`, which the add-in probably is not polling for |
 | `SUPABASE_URL` | server | *Same value* as `VITE_SUPABASE_URL` | Every `api/` route 500s |
 | `SUPABASE_SERVICE_ROLE_KEY` | server | **service_role** key | Same |
 | `ADDIN_API_KEY` | server, optional | Fallback shared secret — see below | Nothing; it is optional |
@@ -40,13 +40,28 @@ Two things this trips people on:
   `VITE_` is compiled into the JavaScript bundle and readable by anyone with
   DevTools, and the service role bypasses row-level security entirely. The anon
   key is designed to be public and is the right one for the browser.
-- **`VITE_` variables are read at build time, not at runtime.** Saving them in
-  Vercel is not enough — redeploy so they end up in the bundle. The unprefixed
-  server variables *are* read at runtime, so those take effect on the next
-  request.
+- **Adding a variable in Vercel does not change a deployment that already
+  exists.** Every deployment captures the environment it was built with, so
+  *both* pairs need a redeploy to take effect — the `VITE_` pair because it is
+  compiled into the bundle, the server pair because the running deployment
+  keeps the snapshot it was created with. Saving the variables and reloading
+  the page changes nothing; **Deployments → ⋯ → Redeploy** is the step people
+  skip.
+- **Leave `VITE_API_BASE_URL` empty.** The app and the functions share an
+  origin on Vercel, and an empty value means "same origin". Nothing under
+  `api/` sends CORS headers, so setting this to a deployment URL in order to
+  develop against it makes the browser block every call. To run the frontend
+  locally against a deployed backend, set `DEV_API_PROXY` instead: Vite proxies
+  `/api` there, keeping the browser same-origin so CORS never applies.
 
 Set all of them in Vercel under **Settings → Environment Variables**
 (Production/Preview/Development scopes), never in a committed file.
+
+`VITE_PROJECT_NAME` has to match the **Project name** field in the add-in's
+Settings dialog exactly. The web app stamps that string onto every config it
+pushes and the add-in polls for its own string, so a mismatch is silent: the
+web app reports success and **Sync Hangers** keeps answering "No pending
+configuration".
 
 `ADDIN_API_KEY` is optional and usually unnecessary. Add-in keys are normally
 generated per user in the web app (**API Keys** in the header), which is the
@@ -106,11 +121,22 @@ SHA-256 hash and shown exactly once, at creation.
 
 ## Troubleshooting
 
-**`{"error":{"code":"500","message":"A server error has occurred"}}`** — that is
-Vercel's own error, not ours, and it means the function crashed before running.
-Almost always a missing environment variable.
+**`{"error":{"code":"500","message":"A server error has occurred"}}`**, often
+with `FUNCTION_INVOCATION_FAILED` — that is Vercel's own error, not ours, and it
+means the function crashed before running. Two causes, and they are told apart
+by *how many* endpoints are affected.
 
-Ask the deployment what it is missing:
+*Every* endpoint failing, `/api/health` included, is not an environment
+problem — a missing variable is reported properly by the handler, and
+`/api/health` needs no variables at all. It means the function crashed at
+import. The usual cause is a relative import without a file extension:
+`package.json` sets `"type": "module"`, so Node's ESM resolver rejects
+`from "./_lib/auth"` and wants `from "./_lib/auth.js"`. `npm run typecheck:api`
+catches this — `tsconfig.api.json` resolves modules the way Node does, not the
+way a bundler does, precisely so that it does.
+
+*One* endpoint failing is worth reading the Functions log for. Otherwise, ask
+the deployment what it is missing:
 
 ```bash
 curl https://<your-deployment>/api/health

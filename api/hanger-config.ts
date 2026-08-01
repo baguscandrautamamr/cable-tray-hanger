@@ -1,8 +1,8 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import type { HangerConfigInput } from "../src/types";
-import { calculatePlacements } from "../src/services/placementAlgorithm";
-import { requireUser } from "./_lib/auth";
-import { resolveSupabaseAdmin } from "./_lib/supabaseAdmin";
+import type { HangerConfigInput } from "../src/types/index.js";
+import { calculatePlacements } from "../src/services/placementAlgorithm.js";
+import { requireUser } from "./_lib/auth.js";
+import { resolveSupabaseAdmin } from "./_lib/supabaseAdmin.js";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== "POST") {

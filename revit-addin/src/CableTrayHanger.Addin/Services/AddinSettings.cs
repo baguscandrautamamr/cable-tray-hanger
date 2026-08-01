@@ -15,11 +15,21 @@ internal sealed class AddinSettings
     [JsonPropertyName("apiBaseUrl")]
     public string ApiBaseUrl { get; set; } = "https://cable-tray-hanger.vercel.app";
 
-    /// <summary>Matches ADDIN_API_KEY on the server; sent as the x-api-key header.</summary>
+    /// <summary>
+    /// Sent as the x-api-key header. Normally a key generated in the web app
+    /// under "API Keys", which is revocable and scoped to one account; the
+    /// server also accepts its ADDIN_API_KEY environment variable as a
+    /// fallback for installs with no account behind them.
+    /// </summary>
     [JsonPropertyName("apiKey")]
     public string ApiKey { get; set; } = "";
 
-    /// <summary>Scopes the add-in to one Revit project in the web app.</summary>
+    /// <summary>
+    /// Scopes the add-in to one Revit project in the web app. Must match the
+    /// web app's VITE_PROJECT_NAME exactly — the web app stamps that string
+    /// onto every config it pushes, and this one is what we poll for, so a
+    /// mismatch shows up only as "No pending configuration".
+    /// </summary>
     [JsonPropertyName("projectName")]
     public string ProjectName { get; set; } = "HBE-ELECTRICAL-E";
 

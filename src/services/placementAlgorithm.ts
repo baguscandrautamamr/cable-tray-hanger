@@ -1,4 +1,7 @@
-import type { Elbow, PlacementPosition, PlacementStats } from "../types";
+// Explicit .js extension: api/hanger-config.ts imports this module, so it is
+// compiled and run as Node ESM on Vercel, where extensionless relative
+// specifiers do not resolve. Vite resolves the .js back to this .ts file.
+import type { Elbow, PlacementPosition, PlacementStats } from "../types/index.js";
 
 /**
  * A hanger within this distance of another required position is considered to

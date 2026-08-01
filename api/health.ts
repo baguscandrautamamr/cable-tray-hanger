@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { hashApiKey } from "./_lib/auth";
-import { getSupabaseAdmin, missingServerEnv } from "./_lib/supabaseAdmin";
+import { hashApiKey, secretsMatch } from "./_lib/auth.js";
+import { getSupabaseAdmin, missingServerEnv } from "./_lib/supabaseAdmin.js";
 
 /**
  * GET /api/health — what is and is not configured on this deployment.
@@ -76,9 +76,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   // The env fallback key is accepted by the add-in endpoints without touching
-  // the database, so report it as valid here too.
+  // the database, so report it as valid here too. Compared in constant time,
+  // exactly as requireAddinKey does: this endpoint is unauthenticated, so a
+  // `===` here would hand out a byte-by-byte timing oracle for the one secret
+  // that is not stored as a hash.
   if (!apiKey.valid && apiKey.provided && env.addin_api_key_fallback) {
-    apiKey.valid = req.headers["x-api-key"] === process.env.ADDIN_API_KEY;
+    apiKey.valid = secretsMatch(req.headers["x-api-key"] as string, process.env.ADDIN_API_KEY!);
     if (apiKey.valid) apiKey.label = "ADDIN_API_KEY environment variable";
   }
 

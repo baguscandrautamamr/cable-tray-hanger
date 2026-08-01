@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import type { ScanPayload } from "../src/types";
-import { requireAddinKey } from "./_lib/auth";
+import type { ScanPayload } from "../src/types/index.js";
+import { requireAddinKey } from "./_lib/auth.js";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== "POST") {
