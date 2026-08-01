@@ -2,7 +2,6 @@ import {
   ArrowUpDown,
   Cable,
   Check,
-  MapPin,
   Plus,
   Ruler,
   Send,
@@ -106,10 +105,8 @@ export default function HangerConfigForm({
     return scan.cable_trays.flatMap((tray) => {
       if ((tray.existing_hanger_count ?? 0) > 0) return [];
 
-      const elbows = scan.elbows.filter((elbow) => elbow.cable_tray_id === tray.id);
-
       try {
-        return [{ tray, positions: calculatePlacements(tray.length_m, spacingMm, elbows) }];
+        return [{ tray, positions: calculatePlacements(tray.length_m, spacingMm) }];
       } catch {
         // A zero-length stub, say. The server reports these by name; the
         // preview simply leaves them out.
@@ -361,9 +358,8 @@ export default function HangerConfigForm({
       </section>
 
       {/* 6. Placement Preview Stats */}
-      <section className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <section className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <StatCard icon={<Plus size={18} className="text-sky-400" />} label="Total Hangers" value={stats.total} />
-        <StatCard icon={<MapPin size={18} className="text-emerald-400" />} label="At Elbows" value={stats.atElbows} />
         <StatCard icon={<Ruler size={18} className="text-violet-400" />} label="At Spacing" value={stats.atSpacing} />
         <StatCard icon={<Check size={18} className="text-amber-400" />} label="Start/End" value={stats.startEnd} />
       </section>
@@ -377,12 +373,7 @@ export default function HangerConfigForm({
               — {positions.length} hangers, {tray.length_m.toFixed(2)}m
             </span>
           </h3>
-          <PreviewTable
-            positions={positions}
-            elbowPositionsM={(scan?.elbows ?? [])
-              .filter((elbow) => elbow.cable_tray_id === tray.id)
-              .map((elbow) => elbow.position_m)}
-          />
+          <PreviewTable positions={positions} />
           <VisualizationCanvas totalLengthM={tray.length_m} positions={positions} />
         </section>
       ))}

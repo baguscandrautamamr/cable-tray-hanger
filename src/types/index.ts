@@ -1,5 +1,10 @@
 export type ConfigStatus = "PENDING" | "SYNCED" | "FAILED";
 
+/**
+ * "ELBOW" is no longer produced — a bend earns a hanger only if the spacing
+ * puts one there. It stays in the union so configurations written before that
+ * rule was dropped still read back.
+ */
 export type PlacementReason = "START" | "ELBOW" | "SPACING" | "END";
 
 export interface CableTray {
@@ -164,7 +169,6 @@ export interface HangerConfig {
 
 export interface PlacementStats {
   total: number;
-  atElbows: number;
   atSpacing: number;
   startEnd: number;
 }

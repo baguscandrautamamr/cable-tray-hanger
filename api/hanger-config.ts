@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import type { CableTray, ConfigTray, Elbow, HangerConfigInput } from "../src/types/index.js";
+import type { CableTray, ConfigTray, HangerConfigInput } from "../src/types/index.js";
 import { calculatePlacements } from "../src/services/placementAlgorithm.js";
 import { requireUser } from "./_lib/auth.js";
 import { resolveSupabaseAdmin } from "./_lib/supabaseAdmin.js";
@@ -48,7 +48,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   // Scoped to the caller: a scan id is a UUID, but it is not a secret.
   const { data: scan, error: scanError } = await supabaseAdmin
     .from("cable_tray_scans")
-    .select("id, project_name, cable_trays, elbows")
+    .select("id, project_name, cable_trays")
     .eq("id", input.scan_id)
     .eq("user_id", user.id)
     .maybeSingle();
@@ -62,7 +62,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   const scannedTrays = (scan.cable_trays ?? []) as CableTray[];
-  const scannedElbows = (scan.elbows ?? []) as Elbow[];
 
   if (scannedTrays.length === 0) {
     return res.status(400).json({ status: "FAILED", message: "That scan contains no cable trays" });
@@ -83,17 +82,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   for (const tray of scannedTrays) {
     if ((tray.existing_hanger_count ?? 0) > 0) continue;
 
-    // An elbow's position is measured along the tray it was matched to, so
-    // only that tray's own elbows apply.
-    const elbows = scannedElbows.filter((elbow) => elbow.cable_tray_id === tray.id);
-
     try {
       trays.push({
         cable_tray_id: tray.id,
         cable_tray_name: tray.name,
         cable_tray_length_m: tray.length_m,
         tray_width_mm: tray.width_mm,
-        placement_positions: calculatePlacements(tray.length_m, input.spacing_mm, elbows),
+        placement_positions: calculatePlacements(tray.length_m, input.spacing_mm),
       });
     } catch (err) {
       // One unusable tray — a zero-length stub, say — must not sink the whole
