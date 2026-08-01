@@ -25,7 +25,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   const { data, error } = await supabaseAdmin
     .from("cable_tray_scans")
-    .select("id, project_name, view_name, cable_trays, hanger_families, elbows, scanned_at, created_at")
+    .select(
+      "id, project_name, view_name, cable_trays, hanger_families, elbows, " +
+        "hanger_family_keyword, hanger_families_matched_keyword, scanned_at, created_at",
+    )
     .eq("user_id", user.id)
     .order("created_at", { ascending: false })
     .limit(1)

@@ -60,6 +60,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       cable_trays: payload.cable_trays,
       hanger_families: payload.hanger_families,
       elbows: payload.elbows,
+      hanger_family_keyword: payload.hanger_family_keyword ?? null,
+      // Null, not false, on add-in builds that predate the field: the web app
+      // only warns about a fallback it has actually been told about.
+      hanger_families_matched_keyword: payload.hanger_families_matched_keyword ?? null,
       scanned_at: payload.timestamp || null,
     })
     .select("id")

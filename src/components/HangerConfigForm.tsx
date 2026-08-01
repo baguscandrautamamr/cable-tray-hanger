@@ -197,9 +197,22 @@ export default function HangerConfigForm({
         <StatusAlert
           kind="pending"
           message={
-            "The scan found no hanger families in the model, so there is nothing to place. " +
-            "Revit has no hanger category, so the add-in matches on a name substring — widen " +
-            "or clear \"Hanger family keyword\" in its Settings dialog, then scan again."
+            "The scan found no families at all in the model, so there is nothing to place. " +
+            "Load the hanger family into the project, then scan again."
+          }
+        />
+      )}
+
+      {/* The keyword matched nothing, so the list below is every loaded family
+          rather than a narrowed one. Saying so beats an empty dropdown. */}
+      {scan && scan.hanger_families_matched_keyword === false && (
+        <StatusAlert
+          kind="pending"
+          message={
+            `No family name contains "${scan.hanger_family_keyword}", so all ` +
+            `${scan.hanger_families.length} loaded families are listed below instead of just the ` +
+            "hangers. Pick yours — or set a keyword that matches it in the add-in's Settings, " +
+            "which also lets the add-in recognise hangers already in the model and leave them alone."
           }
         />
       )}
@@ -278,15 +291,20 @@ export default function HangerConfigForm({
           className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-amber-400"
         >
           <option value="">
-            {hangerFamilies.length ? "Select hanger family..." : "No hanger families scanned yet"}
+            {hangerFamilies.length ? "Select hanger family..." : "No families scanned yet"}
           </option>
           {hangerFamilies.map((f) => (
             <option key={f.name} value={f.name}>
-              {f.name} ({f.type_count} {f.type_count === 1 ? "type" : "types"})
+              {f.name}
+              {f.category ? ` — ${f.category}` : ""} ({f.type_count}{" "}
+              {f.type_count === 1 ? "type" : "types"})
             </option>
           ))}
         </select>
-        <p className="text-xs text-amber-400">Auto-detected from project</p>
+        <p className="text-xs text-amber-400">
+          Auto-detected from project. The category is shown because a hanger built as a cable tray
+          fitting looks like an elbow by name alone.
+        </p>
       </section>
 
       {/* 4. Hanger Spacing Config */}
