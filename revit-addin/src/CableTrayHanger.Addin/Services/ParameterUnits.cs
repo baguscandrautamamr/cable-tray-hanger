@@ -1,3 +1,4 @@
+using System;
 using Autodesk.Revit.DB;
 
 namespace CableTrayHanger.Addin.Services;
@@ -14,12 +15,29 @@ namespace CableTrayHanger.Addin.Services;
 /// </summary>
 internal static class ParameterUnits
 {
-    /// <summary>True when Revit stores this parameter as a length in internal units.</summary>
+    /// <summary>
+    /// True when Revit stores this parameter as a length in internal units.
+    ///
+    /// Compared as strings, not with Equals: SpecTypeId.Length hands back a
+    /// fresh ForgeTypeId each time it is read, and comparing those the obvious
+    /// way answered false for every parameter. A Length then looked unitless,
+    /// so 600mm was written raw and read back as 600 *feet* — a hanger 182.88m
+    /// wide, which is what it takes for a wrong answer here to be visible.
+    ///
+    /// The version suffix is dropped before comparing, so a family authored
+    /// against a different schema revision still matches.
+    /// </summary>
     private static bool IsLength(Parameter parameter)
     {
         try
         {
-            return SpecTypeId.Length.Equals(parameter.Definition.GetDataType());
+            var actual = parameter.Definition?.GetDataType()?.TypeId;
+
+            return actual is not null
+                   && string.Equals(
+                       WithoutVersion(actual),
+                       WithoutVersion(SpecTypeId.Length.TypeId),
+                       StringComparison.Ordinal);
         }
         catch (Autodesk.Revit.Exceptions.ApplicationException)
         {
@@ -27,6 +45,13 @@ internal static class ParameterUnits
             // plain number leaves the value untouched, which is the safer miss.
             return false;
         }
+    }
+
+    /// <summary>"autodesk.spec.aec:length-2.0.0" -> "autodesk.spec.aec:length".</summary>
+    private static string WithoutVersion(string typeId)
+    {
+        var dash = typeId.LastIndexOf('-');
+        return dash < 0 ? typeId : typeId.Substring(0, dash);
     }
 
     /// <summary>

@@ -73,6 +73,7 @@ internal static class HangerPlacer
                 }
 
                 ApplyDimensions(instance, tray.TrayWidthMm, hangerHeightMm, settings);
+                AlignToRun(document, instance, curve, normalized, point);
                 placed++;
             }
             catch (Autodesk.Revit.Exceptions.ApplicationException ex)
@@ -84,6 +85,54 @@ internal static class HangerPlacer
         }
 
         return new PlacementOutcome(placed, failures);
+    }
+
+    /// <summary>
+    /// Turns a hanger to face along the run it sits on.
+    ///
+    /// NewFamilyInstance places every instance at the family's own orientation,
+    /// so without this a run heading east and a run heading north get hangers
+    /// pointing the same way, and only one of them straddles its tray. The tray
+    /// direction was known all along — it just never reached the model.
+    ///
+    /// Rotation is about the vertical through the insertion point, by the
+    /// heading of the curve's tangent there, so it follows a curved run too.
+    /// A failure to rotate leaves a correctly placed hanger badly turned, which
+    /// is worth reporting nowhere and undoing nothing.
+    /// </summary>
+    private static void AlignToRun(
+        Document document,
+        FamilyInstance instance,
+        Curve curve,
+        double normalized,
+        XYZ point)
+    {
+        var tangent = curve.ComputeDerivatives(normalized, true).BasisX;
+        var heading = new XYZ(tangent.X, tangent.Y, 0);
+
+        // A perfectly vertical run has no heading to align to.
+        if (heading.IsZeroLength())
+        {
+            return;
+        }
+
+        var angle = XYZ.BasisX.AngleOnPlaneTo(heading.Normalize(), XYZ.BasisZ);
+
+        if (Math.Abs(angle) < 1e-9)
+        {
+            return;
+        }
+
+        try
+        {
+            var axis = Line.CreateBound(point, point + XYZ.BasisZ);
+            ElementTransformUtils.RotateElement(document, instance.Id, axis, angle);
+        }
+        catch (Autodesk.Revit.Exceptions.ApplicationException)
+        {
+            // Some families pin or constrain their rotation. The hanger is
+            // already placed and sized; leave it be.
+        }
     }
 
     /// <summary>
