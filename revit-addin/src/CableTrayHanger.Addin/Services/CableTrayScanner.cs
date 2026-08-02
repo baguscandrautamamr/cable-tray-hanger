@@ -216,18 +216,26 @@ internal static class CableTrayScanner
         ?? 0.0;
 
     /// <summary>
-    /// Tray width in internal units. CableTray exposes it directly; the
-    /// built-in parameter is the fallback for anything that does not.
+    /// Tray width in internal units, or 0 for an element that has none.
+    ///
+    /// CableTray exposes it directly; the built-in parameter is the fallback for
+    /// anything that does not. Takes an Element rather than a CableTray because
+    /// Sync resolves the config's trays by id and gets Elements back.
     /// </summary>
-    private static double GetWidthFt(CableTray tray)
+    public static double GetWidthFt(Element element)
     {
-        try
+        if (element is CableTray tray)
         {
-            return tray.Width;
+            try
+            {
+                return tray.Width;
+            }
+            catch (Autodesk.Revit.Exceptions.ApplicationException)
+            {
+                // Some trays report through the parameter only.
+            }
         }
-        catch (Autodesk.Revit.Exceptions.ApplicationException)
-        {
-            return tray.get_Parameter(BuiltInParameter.RBS_CABLETRAY_WIDTH_PARAM)?.AsDouble() ?? 0.0;
-        }
+
+        return element.get_Parameter(BuiltInParameter.RBS_CABLETRAY_WIDTH_PARAM)?.AsDouble() ?? 0.0;
     }
 }

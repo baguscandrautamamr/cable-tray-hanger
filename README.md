@@ -241,8 +241,10 @@ places rather than one, because the first two can go out of date:
    view — a hanger hidden by a view filter or cropped out by a section box is
    still standing on the tray, and scoping the search to a view made duplicate
    hangers depend on what happened to be visible when somebody pressed Scan.
-   The match is generous vertically and tight in plan, so a family whose
-   insertion point sits at the top of a long drop rod is still recognised.
+   The match is generous vertically, so a family whose insertion point sits at
+   the top of a long drop rod is still recognised, and in plan it allows the
+   tray's own half-width plus a margin, because a hanger straddles its tray and
+   the family's origin is as likely to be at a drop rod as at the centre.
 2. **At config time.** `POST /api/hanger-config` leaves those trays out of the
    configuration entirely, and the form says which ones and why. A scan where
    every tray is hung is rejected with "nothing left to place" rather than
@@ -255,6 +257,21 @@ places rather than one, because the first two can go out of date:
    lands on an existing hanger is dropped rather than doubled up. Existing
    hangers are also never *moved* — the bend-clearance nudge applies only to
    hangers this sync created.
+
+   Crucially, sync recognises them **by the family it is about to place**, not
+   by the keyword. An instance of that exact family is a hanger by definition
+   and no dialog setting can be wrong about it. The keyword is a supplement,
+   catching hangers of some *other* family on the same run.
+
+Steps 1 and 2 depend on the keyword, and step 3 does not — which matters,
+because a keyword that matches nothing is invisible from the web app. The
+family dropdown falls back to listing every cable tray fitting and looks
+perfectly normal, while the "already has hangers" count reads zero for every
+tray. The **Scan Cable Tray** dialog therefore reports how many trays it found
+already hung, and names the keyword when that number is zero — the one figure
+worth checking against what is on screen. Get the keyword wrong and you will
+be told the trays are empty and then get fewer hangers than the web app
+promised; you will not get duplicates.
 
 So a hanger already in the model is never created over, never moved and never
 written to, and a height you revised in Revit survives every later push. To

@@ -134,10 +134,21 @@ public sealed class SyncCommand : IExternalCommand
         // or by somebody else in a workshared model — and every one of them is
         // a duplicate waiting to happen. Asking the model at the moment of
         // placement is the only check that cannot be out of date.
+        //
+        // Looked up by the family being placed, not by the keyword in Settings.
+        // An instance of the very family this sync is about to add is a hanger
+        // by definition, and no dialog setting can be wrong about it — whereas
+        // a keyword that does not match the family name silently switched the
+        // whole guard off and doubled every hanger on the run.
+        var hangerFamilyIds = symbols
+            .Select(symbol => symbol.Family.Id)
+            .Distinct()
+            .ToList();
+
         var centrelines = HangerLookup.Centrelines(resolved.Select(entry => entry.Element));
         var standing = HangerLookup.OnTrays(
             centrelines,
-            HangerLookup.FindInstances(document, settings.HangerFamilyKeyword),
+            HangerLookup.FindInstances(document, settings.HangerFamilyKeyword, hangerFamilyIds),
             settings.HangerHeightParameter);
 
         // Indexed rather than ToDictionary: a configuration naming the same tray
