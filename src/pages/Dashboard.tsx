@@ -5,15 +5,19 @@ import type { Session } from "@supabase/supabase-js";
 import type { HangerConfig, ScanRecord } from "../types";
 import { supabase } from "../services/supabaseClient";
 import { fetchLatestScan } from "../services/apiClient";
+import { useTranslation } from "../i18n/useTranslation";
 import HistoryTable from "../components/HistoryTable";
-import AuthSection from "../components/AuthSection";
+import PageHeader from "../components/PageHeader";
 import StatusAlert from "../components/StatusAlert";
+import { muted, primaryButton, secondaryButton } from "../ui/styles";
 
 interface DashboardProps {
-  session: Session | null;
+  session: Session;
 }
 
 export default function Dashboard({ session }: DashboardProps) {
+  const { t } = useTranslation();
+
   const [configs, setConfigs] = useState<HangerConfig[]>([]);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -22,11 +26,6 @@ export default function Dashboard({ session }: DashboardProps) {
   // The project shown here is the one the add-in scanned under, so the header
   // reflects Revit rather than a build-time constant.
   useEffect(() => {
-    if (!session) {
-      setScan(null);
-      return;
-    }
-
     let cancelled = false;
 
     fetchLatestScan()
@@ -44,12 +43,6 @@ export default function Dashboard({ session }: DashboardProps) {
   }, [session]);
 
   useEffect(() => {
-    if (!session) {
-      setConfigs([]);
-      setLoadError(null);
-      return;
-    }
-
     let cancelled = false;
     setLoading(true);
     setLoadError(null);
@@ -79,48 +72,38 @@ export default function Dashboard({ session }: DashboardProps) {
 
   return (
     <div className="mx-auto flex max-w-4xl flex-col gap-6 p-6">
-      <header className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold text-slate-100">Cable Tray Hanger</h1>
-          {scan ? (
-            <p className="text-sm text-slate-500">
-              <span className="text-slate-300">{scan.project_name}</span> — last scanned from{" "}
-              {scan.view_name || "an unnamed view"}, {scan.cable_trays.length} trays
-            </p>
-          ) : (
-            <p className="text-sm text-slate-500">Recent hanger configurations</p>
-          )}
-        </div>
-        <div className="flex items-center gap-2">
-        <Link
-          to="/api-keys"
-          className="inline-flex items-center gap-1.5 rounded-md border border-slate-700 px-3 py-2 text-sm text-slate-300 hover:bg-slate-800"
-        >
-          <KeyRound size={18} />
-          API Keys
-        </Link>
-        <Link
-          to="/config"
-          className="inline-flex items-center gap-1.5 rounded-md bg-amber-500 px-4 py-2 text-sm font-medium text-slate-950 hover:bg-amber-400"
-        >
-          <Plus size={18} />
-          New Config
-        </Link>
-        </div>
-      </header>
+      <PageHeader
+        session={session}
+        title={t("app.title")}
+        subtitle={
+          scan
+            ? t("dash.scanned", {
+                project: scan.project_name,
+                view: scan.view_name || t("dash.unnamedView"),
+                count: scan.cable_trays.length,
+              })
+            : t("dash.subtitle")
+        }
+        actions={
+          <>
+            <Link to="/api-keys" className={secondaryButton}>
+              <KeyRound size={18} />
+              {t("dash.apiKeys")}
+            </Link>
+            <Link to="/config" className={primaryButton}>
+              <Plus size={18} />
+              {t("dash.newConfig")}
+            </Link>
+          </>
+        }
+      />
 
-      <AuthSection session={session} />
-
-      {session ? (
-        loading ? (
-          <p className="text-sm text-slate-500">Loading...</p>
-        ) : loadError ? (
-          <StatusAlert kind="failed" message={`Could not load your configurations: ${loadError}`} />
-        ) : (
-          <HistoryTable configs={configs} />
-        )
+      {loading ? (
+        <p className={`text-sm ${muted}`}>{t("common.loading")}</p>
+      ) : loadError ? (
+        <StatusAlert kind="failed" message={t("dash.loadError", { message: loadError })} />
       ) : (
-        <p className="text-sm text-slate-500">Login to view your configuration history.</p>
+        <HistoryTable configs={configs} />
       )}
     </div>
   );

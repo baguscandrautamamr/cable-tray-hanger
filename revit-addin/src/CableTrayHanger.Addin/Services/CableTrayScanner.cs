@@ -18,15 +18,8 @@ internal static class CableTrayScanner
     private const double FittingToTrayToleranceFt = 2.0;
 
     /// <summary>
-    /// Two existing hangers count as the same height if they agree to within
-    /// this many millimetres, so a rounding difference does not read as a
-    /// disagreement.
-    /// </summary>
-    private const double HeightAgreementMm = 1.0;
-
-    /// <summary>
-    /// Reads the picked elements. `view` is only used to name the scan and to
-    /// look for hangers already standing on the picked runs.
+    /// Reads the picked elements. `view` is only used to name the scan; hangers
+    /// already in the model are looked for across the whole document.
     /// </summary>
     public static ScanPayload Scan(
         Document document,
@@ -42,16 +35,17 @@ internal static class CableTrayScanner
         // every hanger already in the model was counted as an elbow and earned
         // itself another hanger on the next sync.
         //
-        // Existing hangers are looked for across the view rather than only in
+        // Existing hangers are looked for across the model rather than only in
         // the selection: leaving a revised run alone must not depend on the
         // person having remembered to select its hangers too.
         var keyword = settings.HangerFamilyKeyword;
-        var hangerInstances = FindHangerInstances(document, view, keyword);
+        var hangerInstances = HangerLookup.FindInstances(document, keyword);
         var hangerIds = hangerInstances.Select(instance => instance.Id).ToHashSet();
         var elbowCandidates = fittings.Where(fitting => !hangerIds.Contains(fitting.Id));
 
-        var centrelines = Centrelines(trays);
-        var existing = CountHangersPerTray(centrelines, hangerInstances, settings.HangerHeightParameter);
+        var centrelines = HangerLookup.Centrelines(trays);
+        var existing = HangerLookup.CountPerTray(
+            HangerLookup.OnTrays(centrelines, hangerInstances, settings.HangerHeightParameter));
         var (families, matchedKeyword) = FindHangerFamilies(document, keyword);
 
         return new ScanPayload
@@ -66,9 +60,6 @@ internal static class CableTrayScanner
             Timestamp = DateTime.UtcNow.ToString("o"),
         };
     }
-
-    /// <summary>What is already hanging on a tray, and at what height.</summary>
-    private sealed record ExistingHangers(int Count, double? HeightMm);
 
     private static CableTrayDto ToDto(
         Document document,
@@ -93,116 +84,12 @@ internal static class CableTrayScanner
         };
     }
 
-    /// <summary>
-    /// Every loaded instance whose family matches the hanger keyword, whatever
-    /// category it sits in — offices build these as cable tray fittings,
-    /// generic models or structural framing depending on the family.
-    /// </summary>
-    private static List<FamilyInstance> FindHangerInstances(Document document, View view, string keyword)
-    {
-        if (string.IsNullOrWhiteSpace(keyword))
-        {
-            // Everything would match, which would empty the elbow list and
-            // report the whole model as existing hangers. Better to report
-            // nothing than to report nonsense.
-            return [];
-        }
-
-        try
-        {
-            return new FilteredElementCollector(document, view.Id)
-                .OfClass(typeof(FamilyInstance))
-                .OfType<FamilyInstance>()
-                .Where(instance =>
-                    instance.Symbol?.Family?.Name is { } name
-                    && name.Contains(keyword, StringComparison.OrdinalIgnoreCase))
-                .ToList();
-        }
-        catch (Autodesk.Revit.Exceptions.ApplicationException)
-        {
-            // Not every view can host a collector. Finding no existing hangers
-            // only means no run is skipped; it is not worth failing the scan.
-            return [];
-        }
-    }
-
-    /// <summary>
-    /// Groups existing hangers onto the tray they sit on, and reports the
-    /// height they share. A disagreement yields null rather than an average:
-    /// the point of the number is to say what is actually in the model.
-    /// </summary>
-    private static Dictionary<ElementId, ExistingHangers> CountHangersPerTray(
-        IReadOnlyCollection<(CableTray Tray, Curve Curve)> centrelines,
-        IEnumerable<FamilyInstance> hangers,
-        string heightParameter)
-    {
-        var perTray = new Dictionary<ElementId, List<double?>>();
-
-        foreach (var hanger in hangers)
-        {
-            if (hanger.Location is not LocationPoint { Point: var origin })
-            {
-                continue;
-            }
-
-            if (NearestTray(centrelines, origin) is not { } match)
-            {
-                continue;
-            }
-
-            var height = string.IsNullOrWhiteSpace(heightParameter)
-                ? null
-                : ParameterUnits.TryGetMillimetres(hanger.LookupParameter(heightParameter));
-
-            if (!perTray.TryGetValue(match.Tray.Id, out var heights))
-            {
-                heights = [];
-                perTray[match.Tray.Id] = heights;
-            }
-
-            heights.Add(height);
-        }
-
-        return perTray.ToDictionary(
-            entry => entry.Key,
-            entry => new ExistingHangers(entry.Value.Count, AgreedHeight(entry.Value)));
-    }
-
-    private static double? AgreedHeight(List<double?> heights)
-    {
-        var known = heights.Where(height => height.HasValue).Select(height => height!.Value).ToList();
-
-        if (known.Count == 0)
-        {
-            return null;
-        }
-
-        return known.Max() - known.Min() <= HeightAgreementMm ? known[0] : null;
-    }
-
-    private sealed record TrayMatch(CableTray Tray, Curve Curve, double Distance);
-
-    /// <summary>
-    /// The trays to match against, with their centrelines read once.
-    ///
-    /// Every fitting and every existing hanger in the view is matched against
-    /// every tray, so this ran Location -> Curve for each pairing: on a floor's
-    /// worth of selection that is tens of thousands of casts before any real
-    /// work happens.
-    /// </summary>
-    private static List<(CableTray Tray, Curve Curve)> Centrelines(IEnumerable<CableTray> trays) =>
-        trays
-            .Select(tray => (Tray: tray, Curve: GetCurve(tray)))
-            .Where(entry => entry.Curve is not null)
-            .Select(entry => (entry.Tray, Curve: entry.Curve!))
-            .ToList();
-
-    /// <summary>The tray whose centreline passes closest to a point, within tolerance.</summary>
-    private static TrayMatch? NearestTray(
-        IReadOnlyCollection<(CableTray Tray, Curve Curve)> centrelines,
+    /// <summary>The tray whose centreline passes closest to a fitting, within tolerance.</summary>
+    private static TrayCentreline? NearestTray(
+        IReadOnlyCollection<TrayCentreline> centrelines,
         XYZ origin)
     {
-        (CableTray Tray, Curve Curve)? best = null;
+        TrayCentreline? best = null;
         var bestDistance = double.MaxValue;
 
         foreach (var candidate in centrelines)
@@ -219,9 +106,7 @@ internal static class CableTrayScanner
             }
         }
 
-        return best is { } match && bestDistance <= FittingToTrayToleranceFt
-            ? new TrayMatch(match.Tray, match.Curve, bestDistance)
-            : null;
+        return bestDistance <= FittingToTrayToleranceFt ? best : null;
     }
 
     /// <summary>
@@ -235,7 +120,7 @@ internal static class CableTrayScanner
     /// several runs, and 4.2m means nothing without saying 4.2m along *what*.
     /// </summary>
     private static List<ElbowDto> FindElbows(
-        IReadOnlyCollection<(CableTray Tray, Curve Curve)> centrelines,
+        IReadOnlyCollection<TrayCentreline> centrelines,
         IEnumerable<FamilyInstance> fittings)
     {
         var elbows = new List<ElbowDto>();
@@ -267,10 +152,6 @@ internal static class CableTrayScanner
         return elbows.OrderBy(e => e.CableTrayId).ThenBy(e => e.PositionM).ToList();
     }
 
-    /// <summary>
-    /// Revit has no hanger category, and offices name these families their own
-    /// way, so the match is a configurable substring of the family name.
-    /// </summary>
     /// <summary>
     /// The families offered in the web app's Hanger Family dropdown.
     ///

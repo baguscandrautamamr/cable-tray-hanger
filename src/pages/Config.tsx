@@ -1,16 +1,19 @@
-import { ArrowLeft } from "lucide-react";
 import { useCallback, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import type { Session } from "@supabase/supabase-js";
+import { useTranslation } from "../i18n/useTranslation";
 import HangerConfigForm from "../components/HangerConfigForm";
+import PageHeader from "../components/PageHeader";
 
 interface ConfigProps {
-  session: Session | null;
-  /** Shown until a scan arrives and names the project itself. */
+  session: Session;
+
+  /** Shown until a scan arrives and names the project itself. May be empty. */
   fallbackProjectName: string;
 }
 
 export default function Config({ session, fallbackProjectName }: ConfigProps) {
+  const { t } = useTranslation();
   const navigate = useNavigate();
 
   // The project is whatever the add-in scanned under, not a build-time
@@ -21,15 +24,14 @@ export default function Config({ session, fallbackProjectName }: ConfigProps) {
 
   return (
     <div className="mx-auto flex max-w-4xl flex-col gap-6 p-6">
-      <header className="flex items-center gap-3">
-        <Link to="/" className="text-slate-500 hover:text-slate-300">
-          <ArrowLeft size={20} />
-        </Link>
-        <div>
-          <h1 className="text-2xl font-semibold text-slate-100">New Hanger Config</h1>
-          <p className="text-sm text-slate-500">{projectName ?? fallbackProjectName}</p>
-        </div>
-      </header>
+      <PageHeader
+        session={session}
+        backTo="/"
+        title={t("config.title")}
+        // An empty VITE_PROJECT_NAME renders no line at all rather than a blank
+        // one: the form below already says in full that no scan has arrived.
+        subtitle={projectName ?? fallbackProjectName}
+      />
 
       <HangerConfigForm
         session={session}
