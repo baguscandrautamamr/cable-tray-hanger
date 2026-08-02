@@ -65,6 +65,10 @@ revocable and scoped to your account.
 | API key | The key you just generated |
 | Project name | Which project's configs this model syncs with — must match the web app |
 | Hanger family keyword | Case-insensitive part of the family name used to find hangers |
+| Tray width / Hanger height parameter | Instance parameters on the hanger family to write each tray's width and the config's height into |
+| Hanger rotation | Degrees to turn a hanger after aligning it with the run — 90 for a family drawn across the tray, 0 for one drawn along it |
+| Dimension each run | Off by default. When on, Sync draws one continuous dimension per run of hangers it places |
+| Linear dimension style | Which style to draw them in, listed from the open model, e.g. "Linear - 3mm Arial" |
 
 **Test connection** calls `GET /api/health` and reports, in one sentence,
 whether the server is reachable, whether it is configured, and whether the key
@@ -124,10 +128,9 @@ Colours are mid-tones so the artwork survives both the light and dark Revit
   is about to place** rather than by the Settings keyword, so no dialog setting
   can switch the guard off. A tray carrying any hanger is skipped whole, and a
   position that lands on an existing hanger is dropped rather than doubled up.
-  Existing hangers are also exempt from the joint nudge below — they are never
-  moved and never written to, so a height revised in Revit survives. The summary
-  dialog names the trays it left alone. To re-hang one, delete its hangers
-  first.
+  Existing hangers are never moved and never written to either way, so a height
+  revised in Revit survives. The summary dialog names the trays it left alone.
+  To re-hang one, delete its hangers first.
 - **The keyword only affects what the web app is told in advance.** A keyword
   that matches no family name means the scan reports every tray as empty, so
   the web app lists them all and offers to place on all of them. Sync still
@@ -135,12 +138,24 @@ Colours are mid-tones so the artwork survives both the light and dark Revit
   than doubled ones. The Scan dialog reports how many trays it found already
   hung and names the keyword when that is zero, because otherwise a wrong
   keyword shows up nowhere.
-- **Hangers that meet at a joint are stepped apart.** Two runs meeting at a bend
-  each want a hanger at the point they share. Both slide along their own tray,
-  away from each other, until they clear — by the trays' own widths, since a
-  hanger straddles its tray, and never by less than 300mm. Only the add-in can
-  do this: the payload carries offsets along a tray, not coordinates, so nothing
-  in it says two trays touch. The summary dialog says how many pairs moved.
+- **Hangers already close together do not get another one.** Two runs meeting at
+  a bend each want a hanger at the point they share, and only the add-in can see
+  that: the payload carries offsets along a tray, not coordinates. A position is
+  dropped when a hanger is already within half the configured spacing of it,
+  with the tray's own width (never under 300mm) as the physical floor. One
+  hanger holds a junction; an earlier version nudged both apart instead and left
+  pairs of them propping each other up around every bend. The summary dialog
+  counts what it dropped.
+- **Vertical runs get no hangers.** A riser is not held up from above by
+  anything, so a hanger spaced along one stands in mid-air beside it. Anything
+  climbing more than 60° from horizontal is left out, by the web app and again
+  at sync time.
+- **Dimensions are optional and view-specific.** Settings has a checkbox and a
+  dropdown of the model's linear dimension styles. When it is on, Sync draws one
+  continuous dimension per run in the active view — which must be a locked 3D
+  view, or a plan or section. It runs in its own transaction after the hangers
+  are committed, so a dimension that will not draw is reported and rolled back
+  alone.
 - **Hangers are placed level-based.** Face-based and work-plane-based hanger
   families will be rejected by Revit; those positions are counted as failures
   and listed in the summary dialog rather than skipped silently.

@@ -38,6 +38,14 @@ internal sealed class CableTrayDto
     /// </summary>
     [JsonPropertyName("existing_hanger_height_mm")]
     public double? ExistingHangerHeightMm { get; set; }
+
+    /// <summary>
+    /// True for a riser — a run climbing too steeply to be held up from above.
+    /// The web app leaves these out of a config, because a hanger spaced along
+    /// a vertical drop stands in mid-air beside it.
+    /// </summary>
+    [JsonPropertyName("is_vertical")]
+    public bool IsVertical { get; set; }
 }
 
 internal sealed class HangerFamilyDto
@@ -143,6 +151,16 @@ internal sealed class LatestConfigDto
     /// </summary>
     [JsonPropertyName("hanger_height_mm")]
     public double? HangerHeightMm { get; set; }
+
+    /// <summary>
+    /// The spacing the positions were worked out at. The add-in needs it as
+    /// well as the positions: "too close together" for two hangers arriving
+    /// from different trays is measured against what was asked for, and a
+    /// bracket's width is no answer to that. Zero on a config from a server
+    /// that predates the field, which leaves only the physical clearance.
+    /// </summary>
+    [JsonPropertyName("spacing_mm")]
+    public double SpacingMm { get; set; }
 
     public List<ConfigTrayDto> Trays { get; set; } = [];
     public int TotalHangers { get; set; }

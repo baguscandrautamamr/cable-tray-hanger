@@ -26,7 +26,6 @@ internal sealed record ExistingHangers(int Count, double? HeightMm);
 internal sealed record StandingHanger(
     ElementId Id,
     ElementId TrayId,
-    Curve TrayCurve,
     HangerSpot Spot,
     double? HeightMm);
 
@@ -93,6 +92,49 @@ internal static class HangerLookup
     /// millimetres, so a rounding difference does not read as a disagreement.
     /// </summary>
     private const double HeightAgreementMm = 1.0;
+
+    /// <summary>
+    /// Steeper than this from the horizontal and a run counts as a riser, in
+    /// degrees.
+    ///
+    /// A hanger holds a tray up from above. A vertical drop is not held up from
+    /// above by anything — it is clamped to a wall or a strut — so hangers
+    /// spaced along one stand in mid-air beside it. Sixty degrees leaves a
+    /// steeply ramped run, which does still want hangers, on the right side of
+    /// the line.
+    /// </summary>
+    private const double RiserDegrees = 60.0;
+
+    /// <summary>
+    /// True when a run climbs more steeply than <see cref="RiserDegrees"/>, so
+    /// it should be left out of a placement altogether.
+    /// </summary>
+    public static bool IsRiser(Element tray)
+    {
+        if (CableTrayScanner.GetCurve(tray) is not { } curve)
+        {
+            return false;
+        }
+
+        // End to end rather than the tangent: what matters is whether the run
+        // goes up, and its two ends say so without caring where along it you
+        // happen to ask.
+        var delta = curve.GetEndPoint(1) - curve.GetEndPoint(0);
+        var horizontal = Math.Sqrt((delta.X * delta.X) + (delta.Y * delta.Y));
+        var vertical = Math.Abs(delta.Z);
+
+        if (vertical <= 1e-9)
+        {
+            return false;
+        }
+
+        if (horizontal <= 1e-9)
+        {
+            return true;
+        }
+
+        return Math.Atan2(vertical, horizontal) * (180.0 / Math.PI) > RiserDegrees;
+    }
 
     public static List<TrayCentreline> Centrelines(IEnumerable<Element> trays) =>
         trays
@@ -199,7 +241,6 @@ internal static class HangerLookup
             standing.Add(new StandingHanger(
                 hanger.Id,
                 match.Tray.Tray.Id,
-                match.Tray.Curve,
                 match.Spot,
                 height));
         }

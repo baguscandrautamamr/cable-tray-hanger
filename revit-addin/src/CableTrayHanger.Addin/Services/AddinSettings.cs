@@ -74,6 +74,26 @@ internal sealed class AddinSettings
     public double HangerRotationDegrees { get; set; } = 90;
 
     /// <summary>
+    /// Whether Sync draws a continuous dimension along each run of hangers it
+    /// places, in the active view.
+    ///
+    /// Off by default: dimensions are a drawing decision, they are
+    /// view-specific, and a sync run from the wrong view would litter it. The
+    /// switch lives here rather than on the web form because the style below
+    /// can only be chosen from what this model has loaded.
+    /// </summary>
+    [JsonPropertyName("createDimensions")]
+    public bool CreateDimensions { get; set; }
+
+    /// <summary>
+    /// Name of the linear dimension style to draw with, e.g.
+    /// "Linear - 3mm Arial". Blank uses whichever linear style the model has;
+    /// the Settings dialog lists the real ones so it need not be typed.
+    /// </summary>
+    [JsonPropertyName("dimensionTypeName")]
+    public string DimensionTypeName { get; set; } = "";
+
+    /// <summary>
     /// ProjectName counts: the server files a scan under it and rejects a
     /// payload without one, and Sync Hangers polls by it. Leaving it out here
     /// turned a blank field into a puzzling 400 from the server rather than the
