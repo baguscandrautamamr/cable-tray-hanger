@@ -23,6 +23,9 @@ internal sealed class SettingsWindow : Window
 
     private readonly AddinSettings _settings;
 
+    /// <summary>Null when no project is open — the hint text below says so.</summary>
+    private readonly Autodesk.Revit.DB.Document? _document;
+
     private readonly TextBox _baseUrl = new();
     private readonly PasswordBox _apiKeyMasked = new();
     private readonly TextBox _apiKeyPlain = new() { Visibility = Visibility.Collapsed };
@@ -54,6 +57,7 @@ internal sealed class SettingsWindow : Window
     public SettingsWindow(AddinSettings settings, Autodesk.Revit.DB.Document? document)
     {
         _settings = settings;
+        _document = document;
 
         Title = "Cable Tray Hanger — Settings";
         Width = 560;
@@ -177,7 +181,7 @@ internal sealed class SettingsWindow : Window
         root.Children.Add(Labelled(
             "Linear dimension style",
             _dimensionStyle,
-            document is null
+            _document is null
                 ? "Open a project to pick from the styles it has loaded. Typed by hand for now."
                 : "The style the run dimensions are drawn in, e.g. \"Linear - 3mm Arial\". "
                   + "Dimensions are view-specific and go in whichever view is active when you "

@@ -95,11 +95,17 @@ public sealed class SyncCommand : IExternalCommand
     private static Result Run(ExternalCommandData commandData, ref string message)
     {
         var uiDocument = commandData.Application.ActiveUIDocument;
-        if (uiDocument?.Document is not { } document)
+
+        if (uiDocument is null || uiDocument.Document is not { } document)
         {
             message = "Open a project before syncing.";
             return Result.Failed;
         }
+
+        // Captured here rather than read again later: dimensions go in whichever
+        // view was active when Sync was pressed, and nothing between here and
+        // there should be able to change which one that was.
+        var activeView = uiDocument.ActiveView;
 
         var settings = AddinSettings.Load();
         var client = new HangerApiClient(settings);
@@ -382,7 +388,7 @@ public sealed class SyncCommand : IExternalCommand
         // draw is a drawing problem; it must not roll back a correct placement,
         // and it must not stop the outcome being reported to the web app.
         var dimensions = settings.CreateDimensions
-            ? Annotate(document, uiDocument.ActiveView, runs, settings)
+            ? Annotate(document, activeView, runs, settings)
             : null;
 
         // A warning is not a failure: those hangers are in the model. Only a
@@ -472,8 +478,8 @@ public sealed class SyncCommand : IExternalCommand
         {
             summary += drawn.Created > 0
                 ? $"\n\nDimensioned {drawn.Created} of {runs.Count} runs in "
-                  + $"{uiDocument.ActiveView.Name}."
-                : $"\n\nNo dimensions were drawn in {uiDocument.ActiveView.Name}.";
+                  + $"{activeView.Name}."
+                : $"\n\nNo dimensions were drawn in {activeView.Name}.";
 
             if (drawn.Problems.Count > 0)
             {

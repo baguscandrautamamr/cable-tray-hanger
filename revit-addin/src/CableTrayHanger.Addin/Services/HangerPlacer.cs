@@ -123,7 +123,7 @@ internal sealed class PlacedHangers
     /// must not keep the next hanger out of a place that is in fact empty.
     /// </summary>
     public void Claim(double trayWidthMm, HangerSpot spot) =>
-        _standing.Add(new Standing(spot.Point, HalfFootprintFt(trayWidthMm), preexisting: false));
+        _standing.Add(new Standing(spot.Point, HalfFootprintFt(trayWidthMm), Preexisting: false));
 
     /// <summary>
     /// Records a hanger that was already in the model when the sync began.
@@ -134,7 +134,7 @@ internal sealed class PlacedHangers
     /// family's insertion point happens to be above or below the tray.
     /// </summary>
     public void ClaimExisting(double trayWidthMm, HangerSpot spot) =>
-        _standing.Add(new Standing(spot.Point, HalfFootprintFt(trayWidthMm), preexisting: true));
+        _standing.Add(new Standing(spot.Point, HalfFootprintFt(trayWidthMm), Preexisting: true));
 
     /// <summary>
     /// A hanger too close to this place, if there is one — preferring one that
