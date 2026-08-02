@@ -5,8 +5,12 @@ using Autodesk.Revit.DB;
 
 namespace CableTrayHanger.Addin.Services;
 
-/// <summary>A tray and its centreline, read once rather than per comparison.</summary>
-internal sealed record TrayCentreline(Element Tray, Curve Curve);
+/// <summary>
+/// A tray, its centreline and half its width, all read once rather than per
+/// comparison. The width is here because how far off the centreline a hanger
+/// may sit depends on the tray it straddles, not on a constant.
+/// </summary>
+internal sealed record TrayCentreline(Element Tray, Curve Curve, double HalfWidthFt);
 
 /// <summary>What is already hanging on a tray, and at what height.</summary>
 internal sealed record ExistingHangers(int Count, double? HeightMm);
@@ -40,14 +44,25 @@ internal sealed record StandingHanger(
 internal static class HangerLookup
 {
     /// <summary>
-    /// How far a hanger's insertion point may sit from a tray's centreline in
+    /// How far past the edge of a tray a hanger's insertion point may sit in
     /// plan and still count as standing on it, in feet.
     ///
-    /// A hanger straddles its tray, so in plan its origin lands on or very near
-    /// the centreline. Two feet covers the widest tray anyone hangs without
-    /// reaching the run on the next ladder over.
+    /// The allowance is the tray's own half-width plus this, because a hanger
+    /// straddles its tray: the family's origin is as likely to be at one of the
+    /// drop rods as at the centre, and a rod sits at the tray edge. A flat two
+    /// feet was fine for a 600 tray and exactly on the line for a 1000 — where
+    /// a rod is 500mm out — so the widest trays were the ones whose hangers
+    /// went unrecognised, and an unrecognised hanger is a duplicated one.
+    ///
+    /// Being too generous costs an empty tray being skipped, which is visible
+    /// and harmless; being too tight costs a duplicate, which is neither. Where
+    /// two trays both qualify the nearer one wins, so parallel runs still go to
+    /// the right one.
     /// </summary>
-    private const double PlanToleranceFt = 2.0;
+    private const double PlanMarginFt = 1.5;
+
+    /// <summary>The most a tray's half-width can contribute, in feet — about a 2m tray.</summary>
+    private const double MaxHalfWidthFt = 3.3;
 
     /// <summary>
     /// How far above or below the tray that same point may sit, in feet.
@@ -65,11 +80,13 @@ internal static class HangerLookup
     /// <summary>
     /// Straight-line distance beyond which no point can satisfy both tolerances,
     /// used to reject a tray without projecting onto it. The closest point on a
-    /// curve is exactly sqrt(plan² + vertical²) away, so this rejects only what
-    /// the real test would have rejected anyway.
+    /// curve is exactly sqrt(plan² + vertical²) away, so with the widest plan
+    /// allowance this rejects only what the real test would have rejected too.
     /// </summary>
     private static readonly double MaxSeparationFt =
-        Math.Sqrt((PlanToleranceFt * PlanToleranceFt) + (VerticalToleranceFt * VerticalToleranceFt));
+        Math.Sqrt(
+            ((MaxHalfWidthFt + PlanMarginFt) * (MaxHalfWidthFt + PlanMarginFt))
+            + (VerticalToleranceFt * VerticalToleranceFt));
 
     /// <summary>
     /// Two hangers count as agreeing on a height if they are within this many
@@ -81,29 +98,51 @@ internal static class HangerLookup
         trays
             .Select(tray => (Tray: tray, Curve: CableTrayScanner.GetCurve(tray)))
             .Where(entry => entry.Curve is not null)
-            .Select(entry => new TrayCentreline(entry.Tray, entry.Curve!))
+            .Select(entry => new TrayCentreline(
+                entry.Tray,
+                entry.Curve!,
+                Math.Min(CableTrayScanner.GetWidthFt(entry.Tray) / 2.0, MaxHalfWidthFt)))
             .ToList();
 
     /// <summary>
-    /// Every family instance in the model whose family name contains the
-    /// keyword, whatever category it sits in — offices build these as cable tray
-    /// fittings, generic models or structural framing depending on the family.
+    /// Every family instance in the model that is one of <paramref name="familyIds"/>,
+    /// or whose family name contains <paramref name="keyword"/> — whatever
+    /// category it sits in, since offices build these as cable tray fittings,
+    /// generic models or structural framing depending on the family.
+    ///
+    /// The two ways in are not equivalent, and the ids are the ones that matter.
+    /// A keyword is a guess at what somebody called their family, configured in
+    /// a dialog and easy to get wrong: set it to something the family name does
+    /// not contain — or blank it — and this returned nothing, so every tray read
+    /// as empty and every hanger was placed a second time. Nothing said so,
+    /// because a keyword that matches no family also makes the web app's
+    /// dropdown fall back to listing every cable tray fitting, which looks
+    /// perfectly normal. The sync knows the family it is about to place without
+    /// having to guess, so it passes those ids and the guard holds whatever the
+    /// keyword says. The keyword is left in as a supplement: it also catches
+    /// hangers of a *different* family standing on the same run.
     ///
     /// The whole document, deliberately, rather than the active view. A hanger
-    /// hidden by a view filter, cropped out by a section box or sitting on a
-    /// worksct that is closed is still in the model and still occupies its
-    /// place on the tray; scoping the search to a view made whether a run got
-    /// duplicate hangers depend on what happened to be visible when somebody
-    /// pressed Scan. Nothing is claimed by breadth alone — a hanger still has to
-    /// stand on one of the trays in question to count.
+    /// hidden by a view filter, cropped out by a section box or on a closed
+    /// workset is still in the model and still occupies its place on the tray;
+    /// scoping the search to a view made whether a run got duplicate hangers
+    /// depend on what happened to be visible when somebody pressed Scan.
+    /// Nothing is claimed by breadth alone — a hanger still has to stand on one
+    /// of the trays in question to count.
     /// </summary>
-    public static List<FamilyInstance> FindInstances(Document document, string keyword)
+    public static List<FamilyInstance> FindInstances(
+        Document document,
+        string keyword,
+        IReadOnlyCollection<ElementId>? familyIds = null)
     {
-        if (string.IsNullOrWhiteSpace(keyword))
+        var byName = !string.IsNullOrWhiteSpace(keyword);
+        var byId = familyIds is { Count: > 0 };
+
+        if (!byName && !byId)
         {
-            // Everything would match, which would report the whole model as
-            // existing hangers and empty the elbow list. Better to report
-            // nothing than to report nonsense.
+            // An empty keyword would match everything, which would report the
+            // whole model as existing hangers and empty the elbow list. With no
+            // ids either there is nothing to look for.
             return [];
         }
 
@@ -112,9 +151,9 @@ internal static class HangerLookup
             return new FilteredElementCollector(document)
                 .OfClass(typeof(FamilyInstance))
                 .OfType<FamilyInstance>()
-                .Where(instance =>
-                    instance.Symbol?.Family?.Name is { } name
-                    && name.Contains(keyword, StringComparison.OrdinalIgnoreCase))
+                .Where(instance => instance.Symbol?.Family is { } family
+                    && ((byId && familyIds!.Contains(family.Id))
+                        || (byName && family.Name.Contains(keyword, StringComparison.OrdinalIgnoreCase))))
                 .ToList();
         }
         catch (Autodesk.Revit.Exceptions.ApplicationException)
@@ -240,7 +279,8 @@ internal static class HangerLookup
                 ((point.X - origin.X) * (point.X - origin.X))
                 + ((point.Y - origin.Y) * (point.Y - origin.Y)));
 
-            if (planFt > PlanToleranceFt || Math.Abs(point.Z - origin.Z) > VerticalToleranceFt)
+            if (planFt > candidate.HalfWidthFt + PlanMarginFt
+                || Math.Abs(point.Z - origin.Z) > VerticalToleranceFt)
             {
                 continue;
             }

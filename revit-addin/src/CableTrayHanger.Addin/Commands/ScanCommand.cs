@@ -67,12 +67,15 @@ public sealed class ScanCommand : IExternalCommand
 
             new HangerApiClient(settings).SubmitScan(payload);
 
+            var hung = payload.CableTrays.Count(tray => tray.ExistingHangerCount > 0);
+
             TaskDialog.Show(
                 "Scan Cable Tray",
                 "Sent:\n\n"
-                + $"  Cable trays: {payload.CableTrays.Count}\n"
+                + $"  Cable trays: {payload.CableTrays.Count} ({hung} already have hangers)\n"
                 + $"  Elbows: {payload.Elbows.Count}\n"
                 + $"  Hanger families: {payload.HangerFamilies.Count}\n\n"
+                + DescribeExisting(hung, payload.CableTrays.Count, settings)
                 + $"Open the web app to configure the placement for {settings.ProjectName}.");
 
             return Result.Succeeded;
@@ -82,6 +85,34 @@ public sealed class ScanCommand : IExternalCommand
             message = ex.Message;
             return Result.Failed;
         }
+    }
+
+    /// <summary>
+    /// Says what the scan concluded about hangers already in the model, which
+    /// is the one number on the dialog that is worth checking against what you
+    /// can see on screen.
+    ///
+    /// A count of zero on runs that visibly have hangers means the keyword does
+    /// not match the family, and until that showed up here it showed up nowhere:
+    /// the web app's family dropdown falls back to listing every cable tray
+    /// fitting when the keyword matches nothing, so it looks perfectly normal
+    /// while the tray-is-already-hung check quietly does nothing.
+    /// </summary>
+    private static string DescribeExisting(int hung, int trays, AddinSettings settings)
+    {
+        if (hung > 0)
+        {
+            return $"Those {hung} will be left out of the next config, so nothing is added to them "
+                   + "and no height you revised in Revit is overwritten.\n\n";
+        }
+
+        return "No tray was found to already have hangers. If some of these runs do, the Hanger "
+               + $"family keyword — currently \"{settings.HangerFamilyKeyword}\" — does not match "
+               + "your hanger family's name; set it in Settings and scan again.\n\n"
+               + "Sync will refuse to place a hanger where one already stands either way, since it "
+               + "recognises the family it is about to place without needing the keyword. The "
+               + $"keyword is what lets the web app tell you in advance, and it is why {trays} "
+               + "trays are about to be listed as empty.\n\n";
     }
 
     /// <summary>

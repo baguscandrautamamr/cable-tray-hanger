@@ -120,12 +120,21 @@ Colours are mid-tones so the artwork survives both the light and dark Revit
 - **A tray that already has hangers is skipped, and its hangers are never
   touched.** Sync asks the model what is standing on each tray at the moment of
   placement rather than trusting the scan, because a scan goes out of date the
-  moment somebody places a hanger by hand. A tray carrying any hanger is skipped
-  whole, and a position that lands on an existing hanger is dropped rather than
-  doubled up. Existing hangers are also exempt from the joint nudge below — they
-  are never moved and never written to, so a height revised in Revit survives.
-  The summary dialog names the trays it left alone. To re-hang one, delete its
-  hangers first.
+  moment somebody places a hanger by hand. It recognises them by the **family it
+  is about to place** rather than by the Settings keyword, so no dialog setting
+  can switch the guard off. A tray carrying any hanger is skipped whole, and a
+  position that lands on an existing hanger is dropped rather than doubled up.
+  Existing hangers are also exempt from the joint nudge below — they are never
+  moved and never written to, so a height revised in Revit survives. The summary
+  dialog names the trays it left alone. To re-hang one, delete its hangers
+  first.
+- **The keyword only affects what the web app is told in advance.** A keyword
+  that matches no family name means the scan reports every tray as empty, so
+  the web app lists them all and offers to place on all of them. Sync still
+  refuses to duplicate, so the result is fewer hangers than promised rather
+  than doubled ones. The Scan dialog reports how many trays it found already
+  hung and names the keyword when that is zero, because otherwise a wrong
+  keyword shows up nowhere.
 - **Hangers that meet at a joint are stepped apart.** Two runs meeting at a bend
   each want a hanger at the point they share. Both slide along their own tray,
   away from each other, until they clear — by the trays' own widths, since a

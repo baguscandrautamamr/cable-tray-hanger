@@ -92,9 +92,11 @@ const en = {
     "the hanger family, then scan again.",
   "config.keywordMissed":
     'No family name contains "{keyword}", so all {count} Cable Tray Fitting families are listed ' +
-    "below rather than just the hangers. Pick yours — or set a keyword that matches it in the " +
-    "add-in's Settings, which is also how the add-in recognises hangers already in the model and " +
-    "leaves them alone.",
+    "below rather than just the hangers. Pick yours — but also set a keyword that matches it in " +
+    "the add-in's Settings and scan again, because the same keyword is how a scan recognises " +
+    "hangers already in the model: until it matches, every tray below is listed as empty whether " +
+    "it is or not. Sync will still refuse to place a hanger where one already stands — it knows " +
+    "the family it is placing — so you will get fewer hangers than the count here, not duplicates.",
 
   "config.skipped.title": "{skipped} of {total} cable trays already have hangers",
   "config.skipped.body":
@@ -244,9 +246,12 @@ const id: Record<TranslationKey, string> = {
     "dipasang. Muat family hanger-nya, lalu pindai lagi.",
   "config.keywordMissed":
     'Tidak ada nama family yang mengandung "{keyword}", jadi seluruh {count} family Cable Tray ' +
-    "Fitting ditampilkan di bawah, bukan hanya hanger-nya. Pilih milik Anda — atau setel kata " +
-    "kunci yang cocok di Settings add-in, karena kata kunci itu juga yang dipakai add-in untuk " +
-    "mengenali hanger yang sudah ada di model dan membiarkannya.",
+    "Fitting ditampilkan di bawah, bukan hanya hanger-nya. Pilih milik Anda — tapi setel juga " +
+    "kata kunci yang cocok di Settings add-in lalu pindai ulang, karena kata kunci yang sama " +
+    "itulah yang dipakai pemindaian untuk mengenali hanger yang sudah ada di model: selama belum " +
+    "cocok, semua tray di bawah terdaftar kosong entah benar kosong atau tidak. Sync tetap menolak " +
+    "memasang hanger di tempat yang sudah ada hanger-nya — ia mengenali family yang sedang " +
+    "dipasang — jadi hasilnya lebih sedikit dari angka di sini, bukan duplikat.",
 
   "config.skipped.title": "{skipped} dari {total} cable tray sudah punya hanger",
   "config.skipped.body":
