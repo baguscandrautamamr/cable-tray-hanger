@@ -9,6 +9,36 @@ This is Phase 1 (web control center). The Revit 2025 add-in that syncs with it
 React 19 / Vite / TypeScript / Tailwind CSS v4, Supabase (Postgres + Auth),
 Vercel serverless functions, lucide-react icons.
 
+## Accounts and access
+
+The whole app sits behind a sign-in. There is no page to see signed out, and no
+sign-up form, no magic link and no password reset: **an administrator creates
+accounts in the Supabase dashboard** under **Authentication → Users → Add
+user**, with an email and a password to hand over. Everything a person can
+reach — configs, scans, API keys — is scoped to their own account by row-level
+security, so adding somebody is the whole of granting them access and deleting
+them is the whole of revoking it.
+
+The sign-in form says as much, so "I do not have an account yet" leads to
+asking an administrator rather than hunting for a register link that was never
+there.
+
+## Language and theme
+
+The header of every page, the sign-in screen included, carries two toggles:
+
+- **Language** — English and Bahasa Indonesia. Every string is translated;
+  English is the fallback for anything a translation is missing. The initial
+  choice follows the browser's language, and the toggle overrides it from then
+  on.
+- **Theme** — light and dark. **Light is the default**, deliberately rather
+  than following `prefers-color-scheme`: this is a drawing-office tool used
+  beside Revit's own light interface and printed from.
+
+Both are remembered per browser in `localStorage`, and neither needs an
+account — somebody who cannot read the sign-in form is exactly the person who
+needs the language switch to be in front of it.
+
 ## Setup
 
 ```bash
@@ -167,9 +197,10 @@ The response contains only booleans — never a value, a URL or a key.
    earn a hanger of their own: the spacing entered on the form is the whole
    rule, and a bend gets a hanger only where that spacing puts one.
 2. The config form reads the newest scan from `GET /api/latest-scan`. There is
-   no tray to pick: a config covers **every** tray in the scan, because a run
-   needs hangers along all of it and choosing them one at a time was the slow
-   part of the job.
+   no tray to pick: a config covers **every empty** tray in the scan, because a
+   run needs hangers along all of it and choosing them one at a time was the
+   slow part of the job. Trays that already carry hangers are listed and then
+   left out — see below.
 3. You choose three things — hanger family, spacing, and height. Everything
    else is taken from the model.
 4. **Sync Hangers** places the lot in one transaction and reports back.
@@ -197,11 +228,38 @@ for one drawn along it. Nothing in the model says which you have, so if they
 come out facing the wrong way, that is the one number to change.
 
 **Height is the one dimension the model cannot supply**, so the web app asks
-for it — and it is written *only* onto hangers the add-in creates. A hanger
-already in the model is never touched, so a height you revised in Revit
-survives every later push. A tray that already carries hangers is left out of
-a new config entirely; the form lists those trays and the height it found on
-them.
+for it — and it is written *only* onto hangers the add-in creates.
+
+### A tray that already has hangers is never touched again
+
+This is the rule the revision loop turns on, and it is enforced in three
+places rather than one, because the first two can go out of date:
+
+1. **At scan time.** Every hanger in the model is matched to the tray it stands
+   on, and a tray carrying any of them is reported with its count and the
+   height they share. The search covers the **whole document**, not the active
+   view — a hanger hidden by a view filter or cropped out by a section box is
+   still standing on the tray, and scoping the search to a view made duplicate
+   hangers depend on what happened to be visible when somebody pressed Scan.
+   The match is generous vertically and tight in plan, so a family whose
+   insertion point sits at the top of a long drop rod is still recognised.
+2. **At config time.** `POST /api/hanger-config` leaves those trays out of the
+   configuration entirely, and the form says which ones and why. A scan where
+   every tray is hung is rejected with "nothing left to place" rather than
+   saved as an empty config.
+3. **At sync time**, which is the one that actually holds. A scan is a
+   snapshot; hangers appear between taking one and syncing it — placed by hand,
+   by an earlier sync of the same config, or by somebody else in a workshared
+   model. So **Sync Hangers** asks the model again at the moment of placement:
+   a tray with hangers on it is skipped whole, and any remaining position that
+   lands on an existing hanger is dropped rather than doubled up. Existing
+   hangers are also never *moved* — the bend-clearance nudge applies only to
+   hangers this sync created.
+
+So a hanger already in the model is never created over, never moved and never
+written to, and a height you revised in Revit survives every later push. To
+re-hang a run, delete its hangers first, then scan and push again — the Sync
+dialog says exactly that alongside the trays it left alone.
 
 Both parameter names (`TRAY_W` and `Height Support` by default) are settings in
 the add-in's dialog, because every office's hanger family names them

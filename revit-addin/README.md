@@ -1,7 +1,8 @@
 # Cable Tray Hanger — Revit 2025 Add-in (Phase 2)
 
-The Revit half of the system. It reads cable trays out of the active view and
-sends them to the web app, then places the hangers the web app calculated.
+The Revit half of the system. It reads the cable trays you select and sends
+them to the web app, then places the hangers the web app calculated — on the
+trays that do not already have any.
 
 ## Requirements
 
@@ -81,8 +82,8 @@ the form. Settings are re-read on every command — no Revit restart needed.
 
 | Button | What it does |
 |---|---|
-| **Scan Cable Tray** | Collects the trays, elbows and hanger families visible in the active view and posts them to `/api/scan-cable-tray`. |
-| **Sync Hangers** | Fetches the oldest `PENDING` config for the project, places the hangers, and reports back to `/api/config-status/:id`. |
+| **Scan Cable Tray** | Collects the trays and fittings you select, plus the project's hanger families, and posts them to `/api/scan-cable-tray`. Hangers already in the model are found across the whole document and reported per tray. |
+| **Sync Hangers** | Fetches the oldest `PENDING` config for the project, places the hangers on the trays that have none, and reports back to `/api/config-status/:id`. |
 | **Settings** | Connection settings, with a Test connection button. |
 
 The whole placement happens in one Revit transaction titled
@@ -109,10 +110,6 @@ Colours are mid-tones so the artwork survives both the light and dark Revit
   model; the ribbon, the icons and the failure dialogs work. The settings
   dialog and the key-based auth have been compiled and reviewed but not yet
   clicked through in Revit.
-- **The web app discards scans.** `POST /api/scan-cable-tray` validates and
-  acknowledges the payload but does not store it, so **Scan** currently has no
-  visible effect in the browser — the config form still lists placeholder
-  trays. See "Known gaps" in the root README.
 - **Elbows are reported, not acted on.** A fitting is assigned to the nearest
   tray centreline within 2 ft and its position recorded as the distance from
   that tray's start, so the web app can say how many bends a scan covered.
@@ -120,6 +117,15 @@ Colours are mid-tones so the artwork survives both the light and dark Revit
 - **Spacing is the only rule.** Hangers go at the two ends of each tray and at
   the spacing entered on the web page. A bend earns one only if the spacing puts
   it there.
+- **A tray that already has hangers is skipped, and its hangers are never
+  touched.** Sync asks the model what is standing on each tray at the moment of
+  placement rather than trusting the scan, because a scan goes out of date the
+  moment somebody places a hanger by hand. A tray carrying any hanger is skipped
+  whole, and a position that lands on an existing hanger is dropped rather than
+  doubled up. Existing hangers are also exempt from the joint nudge below — they
+  are never moved and never written to, so a height revised in Revit survives.
+  The summary dialog names the trays it left alone. To re-hang one, delete its
+  hangers first.
 - **Hangers that meet at a joint are stepped apart.** Two runs meeting at a bend
   each want a hanger at the point they share. Both slide along their own tray,
   away from each other, until they clear — by the trays' own widths, since a

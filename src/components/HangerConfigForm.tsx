@@ -1,14 +1,6 @@
-import {
-  ArrowUpDown,
-  Cable,
-  Check,
-  Plus,
-  Ruler,
-  Send,
-  Wrench,
-  X,
-} from "lucide-react";
+import { ArrowUpDown, Cable, Check, Plus, Ruler, Send, Wrench, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import type { ReactNode } from "react";
 import type { Session } from "@supabase/supabase-js";
 import type { CableTray, PlacementPosition, ScanRecord, StatusAlertData } from "../types";
 import {
@@ -17,15 +9,31 @@ import {
   summarizePlacements,
 } from "../services/placementAlgorithm";
 import { fetchLatestScan, submitHangerConfig } from "../services/apiClient";
-import AuthSection from "./AuthSection";
+import { useTranslation } from "../i18n/useTranslation";
 import PreviewTable from "./PreviewTable";
 import StatusAlert from "./StatusAlert";
 import VisualizationCanvas from "./VisualizationCanvas";
+import {
+  accentIcon,
+  actionButton,
+  faint,
+  input,
+  label as labelClass,
+  muted,
+  secondaryButton,
+  surface,
+  tableBody,
+  tableHead,
+  tableRow,
+  tableWrap,
+} from "../ui/styles";
 
 const DEFAULT_HEIGHT_MM = 500;
+const DEFAULT_SPACING_MM = 1500;
 
 interface HangerConfigFormProps {
-  session: Session | null;
+  session: Session;
+
   /** Reports the scanned project name upwards, so the page header can show it. */
   onProjectName?: (projectName: string) => void;
   onSaved?: () => void;
@@ -37,29 +45,28 @@ interface PlannedTray {
   positions: PlacementPosition[];
 }
 
+/** Hangers already on a tray, as the model reported them at scan time. */
+const existingCount = (tray: CableTray) => tray.existing_hanger_count ?? 0;
+
 export default function HangerConfigForm({
   session,
   onProjectName,
   onSaved,
 }: HangerConfigFormProps) {
+  const { t } = useTranslation();
+
   const [scan, setScan] = useState<ScanRecord | null>(null);
   const [scanLoading, setScanLoading] = useState(false);
   const [scanError, setScanError] = useState<string | null>(null);
 
   const [hangerFamilyName, setHangerFamilyName] = useState("");
-  const [spacingMm, setSpacingMm] = useState(1500);
+  const [spacingMm, setSpacingMm] = useState(DEFAULT_SPACING_MM);
   const [heightMm, setHeightMm] = useState(DEFAULT_HEIGHT_MM);
   const [alert, setAlert] = useState<StatusAlertData | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
   // The trays and families come from the model, not from this file.
   useEffect(() => {
-    if (!session) {
-      setScan(null);
-      setScanError(null);
-      return;
-    }
-
     let cancelled = false;
     setScanLoading(true);
     setScanError(null);
@@ -72,7 +79,7 @@ export default function HangerConfigForm({
       })
       .catch((err: unknown) => {
         if (cancelled) return;
-        setScanError(err instanceof Error ? err.message : "Could not load the latest scan");
+        setScanError(err instanceof Error ? err.message : t("keys.unknownError"));
       })
       .finally(() => {
         if (!cancelled) setScanLoading(false);
@@ -81,7 +88,7 @@ export default function HangerConfigForm({
     return () => {
       cancelled = true;
     };
-  }, [session, onProjectName]);
+  }, [session, onProjectName, t]);
 
   const hangerFamilies = useMemo(() => scan?.hanger_families ?? [], [scan]);
 
@@ -91,19 +98,21 @@ export default function HangerConfigForm({
   const heightValid = Number.isFinite(heightMm) && heightMm > 0;
 
   // Trays that already carry hangers keep whatever height they were revised to
-  // in Revit, so they are reported and then left alone.
+  // in Revit, so they are reported and then left alone — not topped up and not
+  // re-spaced. Adding to a run means placing beside hangers somebody has
+  // already positioned, and there is no way to do that without risking the work.
   const skippedTrays = useMemo(
-    () => (scan?.cable_trays ?? []).filter((tray) => (tray.existing_hanger_count ?? 0) > 0),
+    () => (scan?.cable_trays ?? []).filter((tray) => existingCount(tray) > 0),
     [scan],
   );
 
-  // Every remaining tray is planned — there is nothing to pick. Selecting runs
+  // Every *empty* tray is planned — there is nothing to pick. Selecting runs
   // one at a time was the slow part of the job.
   const plannedTrays = useMemo<PlannedTray[]>(() => {
     if (!scan || !spacingValid) return [];
 
     return scan.cable_trays.flatMap((tray) => {
-      if ((tray.existing_hanger_count ?? 0) > 0) return [];
+      if (existingCount(tray) > 0) return [];
 
       try {
         return [{ tray, positions: calculatePlacements(tray.length_m, spacingMm) }];
@@ -123,7 +132,7 @@ export default function HangerConfigForm({
   const stats = useMemo(() => summarizePlacements(allPositions), [allPositions]);
 
   async function handlePush() {
-    if (!scan || !hangerFamilyName || !session || !spacingValid || !heightValid) return;
+    if (!scan || !hangerFamilyName || !spacingValid || !heightValid) return;
 
     setSubmitting(true);
     setAlert(null);
@@ -139,7 +148,9 @@ export default function HangerConfigForm({
     } catch (err) {
       setAlert({
         kind: "failed",
-        message: `Error: ${err instanceof Error ? err.message : "Unknown error"}`,
+        message: t("config.pushError", {
+          message: err instanceof Error ? err.message : t("keys.unknownError"),
+        }),
       });
     } finally {
       setSubmitting(false);
@@ -148,56 +159,42 @@ export default function HangerConfigForm({
 
   function handleCancel() {
     setHangerFamilyName("");
-    setSpacingMm(1500);
+    setSpacingMm(DEFAULT_SPACING_MM);
     setHeightMm(DEFAULT_HEIGHT_MM);
     setAlert(null);
   }
 
   const canPush = Boolean(
-    session && plannedTrays.length > 0 && hangerFamilyName && spacingValid && heightValid && !submitting,
+    plannedTrays.length > 0 && hangerFamilyName && spacingValid && heightValid && !submitting,
   );
 
   return (
     <div className="flex flex-col gap-6">
-      {/* 1. Auth Section */}
-      <AuthSection session={session} />
+      {/* 1. Where the model data came from, and what is wrong with it */}
+      {scanLoading && <p className={`text-sm ${muted}`}>{t("config.loadingScan")}</p>}
 
-      {/* 1b. Where the model data came from, and what is wrong with it */}
-      {session && scanLoading && (
-        <p className="text-sm text-slate-500">Loading the latest scan from Revit...</p>
+      {scanError && (
+        <StatusAlert kind="failed" message={t("config.scanError", { message: scanError })} />
       )}
 
-      {session && scanError && (
-        <StatusAlert kind="failed" message={`Could not load the latest scan: ${scanError}`} />
-      )}
-
-      {session && !scanLoading && !scanError && !scan && (
-        <StatusAlert
-          kind="info"
-          message={
-            "No scan from Revit yet. Open a view showing the cable tray run and press " +
-            "Scan Cable Tray on the Cable Tray Hanger ribbon, then reload this page."
-          }
-        />
+      {!scanLoading && !scanError && !scan && (
+        <StatusAlert kind="info" message={t("config.noScan")} />
       )}
 
       {scan && (
-        <p className="text-xs text-slate-500">
-          Scanned from <span className="text-slate-300">{scan.view_name || "an unnamed view"}</span>{" "}
-          in <span className="text-slate-300">{scan.project_name}</span> —{" "}
-          {scan.cable_trays.length} trays, {scan.elbows.length} elbows,{" "}
-          {scan.hanger_families.length} hanger families.
+        <p className={`text-xs ${faint}`}>
+          {t("config.scanSummary", {
+            view: scan.view_name || t("dash.unnamedView"),
+            project: scan.project_name,
+            trays: scan.cable_trays.length,
+            elbows: scan.elbows.length,
+            families: scan.hanger_families.length,
+          })}
         </p>
       )}
 
       {scan && scan.hanger_families.length === 0 && (
-        <StatusAlert
-          kind="pending"
-          message={
-            "No Cable Tray Fitting families are loaded in this project, so there is nothing to " +
-            "place. Load the hanger family, then scan again."
-          }
-        />
+        <StatusAlert kind="pending" message={t("config.noFamilies")} />
       )}
 
       {/* The keyword matched nothing, so the list below is every cable tray
@@ -205,172 +202,173 @@ export default function HangerConfigForm({
       {scan && scan.hanger_families_matched_keyword === false && scan.hanger_families.length > 0 && (
         <StatusAlert
           kind="pending"
-          message={
-            `No family name contains "${scan.hanger_family_keyword}", so all ` +
-            `${scan.hanger_families.length} Cable Tray Fitting families are listed below rather ` +
-            "than just the hangers. Pick yours — or set a keyword that matches it in the add-in's " +
-            "Settings, which is also how the add-in recognises hangers already in the model and " +
-            "leaves them alone."
-          }
+          message={t("config.keywordMissed", {
+            keyword: scan.hanger_family_keyword ?? "",
+            count: scan.hanger_families.length,
+          })}
         />
       )}
 
+      {/* 2. The trays this config deliberately does not touch */}
       {skippedTrays.length > 0 && (
         <StatusAlert
           kind="info"
-          message={
-            `${skippedTrays.length} of ${scan?.cable_trays.length} trays already carry hangers ` +
-            "and are left untouched, so any height you revised in Revit survives: " +
-            skippedTrays
-              .map(
-                (tray) =>
-                  `${tray.name} (${tray.existing_hanger_count}` +
-                  (tray.existing_hanger_height_mm ? ` at ${tray.existing_hanger_height_mm}mm` : "") +
-                  ")",
-              )
-              .join(", ") +
-            "."
-          }
-        />
+          message={t("config.skipped.title", {
+            skipped: skippedTrays.length,
+            total: scan?.cable_trays.length ?? skippedTrays.length,
+          })}
+        >
+          <p>{t("config.skipped.body")}</p>
+          <ul className="list-inside list-disc">
+            {skippedTrays.map((tray) => (
+              <li key={tray.id}>
+                {tray.existing_hanger_height_mm
+                  ? t("config.skipped.itemAtHeight", {
+                      name: tray.name,
+                      count: existingCount(tray),
+                      height: Math.round(tray.existing_hanger_height_mm),
+                    })
+                  : t("config.skipped.item", { name: tray.name, count: existingCount(tray) })}
+              </li>
+            ))}
+          </ul>
+        </StatusAlert>
       )}
 
-      {/* 2. Cable trays in this config — every one of them, no picking */}
-      <section className="flex flex-col gap-2">
-        <label className="flex items-center gap-2 text-sm font-medium text-slate-200">
-          <Cable size={22} className="text-sky-400" />
-          Cable Trays ({plannedTrays.length})
-        </label>
-        <div className="overflow-x-auto rounded-lg border border-slate-800">
+      {/* 3. Cable trays in this config — every empty one, no picking */}
+      <Section
+        icon={<Cable size={22} className={accentIcon} />}
+        title={t("config.trays", { count: plannedTrays.length })}
+      >
+        <div className={tableWrap}>
           <table className="w-full min-w-[32rem] text-left text-sm">
-            <thead className="bg-slate-900 text-slate-400">
+            <thead className={tableHead}>
               <tr>
-                <th className="px-4 py-2 font-medium">Tray</th>
-                <th className="px-4 py-2 font-medium">Length</th>
-                <th className="px-4 py-2 font-medium">Width</th>
-                <th className="px-4 py-2 font-medium">Hangers</th>
+                <th className="px-4 py-2 font-medium">{t("config.trays.tray")}</th>
+                <th className="px-4 py-2 font-medium">{t("config.trays.length")}</th>
+                <th className="px-4 py-2 font-medium">{t("config.trays.width")}</th>
+                <th className="px-4 py-2 font-medium">{t("config.trays.hangers")}</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-800">
+            <tbody className={tableBody}>
               {plannedTrays.map(({ tray, positions }) => (
-                <tr key={tray.id}>
-                  <td className="px-4 py-2 text-slate-200">{tray.name}</td>
-                  <td className="px-4 py-2 text-slate-400">{tray.length_m.toFixed(2)}m</td>
+                <tr key={tray.id} className={tableRow}>
+                  <td className="px-4 py-2">{tray.name}</td>
+                  <td className={`px-4 py-2 ${muted}`}>{tray.length_m.toFixed(2)}m</td>
                   {/* Width is not an input: the hanger has to span the tray. */}
-                  <td className="px-4 py-2 text-slate-400">
-                    {tray.width_mm ? `${Math.round(tray.width_mm)}mm` : "—"}
+                  <td className={`px-4 py-2 ${muted}`}>
+                    {tray.width_mm ? `${Math.round(tray.width_mm)}mm` : t("common.none")}
                   </td>
-                  <td className="px-4 py-2 text-slate-200">{positions.length}</td>
+                  <td className="px-4 py-2">{positions.length}</td>
                 </tr>
               ))}
               {plannedTrays.length === 0 && (
                 <tr>
-                  <td className="px-4 py-3 text-slate-500" colSpan={4}>
-                    No trays to place.
+                  <td className={`px-4 py-3 ${muted}`} colSpan={4}>
+                    {t("config.trays.empty")}
                   </td>
                 </tr>
               )}
             </tbody>
           </table>
         </div>
-        <p className="text-xs text-slate-500">
-          Every scanned tray is included. Hanger width follows each tray's own width.
-        </p>
-      </section>
+        <p className={`text-xs ${faint}`}>{t("config.trays.note")}</p>
+      </Section>
 
-      {/* 3. Hanger Family Selection */}
-      <section className="flex flex-col gap-2">
-        <label className="flex items-center gap-2 text-sm font-medium text-slate-200">
-          <Wrench size={22} className="text-sky-400" />
-          Hanger Family
-        </label>
+      {/* 4. Hanger family selection */}
+      <Section
+        icon={<Wrench size={22} className={accentIcon} />}
+        title={t("config.family")}
+      >
         <select
           value={hangerFamilyName}
           onChange={(e) => setHangerFamilyName(e.target.value)}
-          className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-amber-400"
+          className={input}
         >
           <option value="">
-            {hangerFamilies.length
-              ? "Select hanger family..."
-              : "No Cable Tray Fitting families scanned yet"}
+            {hangerFamilies.length ? t("config.family.placeholder") : t("config.family.none")}
           </option>
           {hangerFamilies.map((f) => (
             <option key={f.name} value={f.name}>
               {f.name}
-              {f.category ? ` — ${f.category}` : ""} ({f.type_count}{" "}
-              {f.type_count === 1 ? "type" : "types"})
+              {f.category ? ` — ${f.category}` : ""} (
+              {f.type_count === 1
+                ? t("config.family.type", { count: f.type_count })
+                : t("config.family.types", { count: f.type_count })}
+              )
             </option>
           ))}
         </select>
-        <p className="text-xs text-amber-400">
-          Cable Tray Fitting families loaded in this project — that is what a cable tray hanger is
-          built as.
-        </p>
-      </section>
+        <p className={`text-xs ${faint}`}>{t("config.family.note")}</p>
+      </Section>
 
-      {/* 4. Hanger Spacing Config */}
-      <section className="flex flex-col gap-2">
-        <label className="flex items-center gap-2 text-sm font-medium text-slate-200">
-          <Ruler size={22} className="text-sky-400" />
-          Hanger Spacing (mm)
-        </label>
+      {/* 5. Hanger spacing */}
+      <Section icon={<Ruler size={22} className={accentIcon} />} title={t("config.spacing")}>
         <input
           type="number"
-          min={500}
+          min={MIN_SPACING_MM}
           max={3000}
           step={100}
           value={spacingMm}
           onChange={(e) => setSpacingMm(Number(e.target.value))}
-          className="w-40 rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-amber-400"
+          className={`w-40 ${input}`}
         />
         {spacingValid ? (
-          <p className="text-xs text-slate-500">
-            Guideline spacing. Elbow positions are forced.
-          </p>
+          <p className={`text-xs ${faint}`}>{t("config.spacing.note")}</p>
         ) : (
-          <p className="text-xs text-red-400">
-            Enter a spacing of at least {MIN_SPACING_MM}mm to preview placement.
+          <p className="text-xs text-red-600 dark:text-red-400">
+            {t("config.spacing.invalid", { min: MIN_SPACING_MM })}
           </p>
         )}
-      </section>
+      </Section>
 
-      {/* 5. Hanger Height — the one dimension the model cannot supply */}
-      <section className="flex flex-col gap-2">
-        <label className="flex items-center gap-2 text-sm font-medium text-slate-200">
-          <ArrowUpDown size={22} className="text-sky-400" />
-          Hanger Height (mm)
-        </label>
+      {/* 6. Hanger height — the one dimension the model cannot supply */}
+      <Section icon={<ArrowUpDown size={22} className={accentIcon} />} title={t("config.height")}>
         <input
           type="number"
           min={1}
           step={50}
           value={heightMm}
           onChange={(e) => setHeightMm(Number(e.target.value))}
-          className="w-40 rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-amber-400"
+          className={`w-40 ${input}`}
         />
         {heightValid ? (
-          <p className="text-xs text-slate-500">
-            Written onto the hangers this config creates. Hangers already in the model keep the
-            height they have, so a revision made in Revit is never overwritten.
-          </p>
+          <p className={`text-xs ${faint}`}>{t("config.height.note")}</p>
         ) : (
-          <p className="text-xs text-red-400">Enter a height greater than 0.</p>
+          <p className="text-xs text-red-600 dark:text-red-400">{t("config.height.invalid")}</p>
         )}
-      </section>
+      </Section>
 
-      {/* 6. Placement Preview Stats */}
+      {/* 7. Placement preview stats */}
       <section className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-        <StatCard icon={<Plus size={18} className="text-sky-400" />} label="Total Hangers" value={stats.total} />
-        <StatCard icon={<Ruler size={18} className="text-violet-400" />} label="At Spacing" value={stats.atSpacing} />
-        <StatCard icon={<Check size={18} className="text-amber-400" />} label="Start/End" value={stats.startEnd} />
+        <StatCard
+          icon={<Plus size={18} className={accentIcon} />}
+          label={t("config.stats.total")}
+          value={stats.total}
+        />
+        <StatCard
+          icon={<Ruler size={18} className="text-violet-600 dark:text-violet-400" />}
+          label={t("config.stats.spacing")}
+          value={stats.atSpacing}
+        />
+        <StatCard
+          icon={<Check size={18} className="text-amber-600 dark:text-amber-400" />}
+          label={t("config.stats.ends")}
+          value={stats.startEnd}
+        />
       </section>
 
-      {/* 7. Per-tray detail and visualization */}
+      {/* 8. Per-tray detail and visualization */}
       {plannedTrays.map(({ tray, positions }) => (
         <section key={tray.id} className="flex flex-col gap-2">
-          <h3 className="text-sm font-medium text-slate-200">
+          <h3 className="text-sm font-medium text-slate-800 dark:text-slate-200">
             {tray.name}{" "}
-            <span className="font-normal text-slate-500">
-              — {positions.length} hangers, {tray.length_m.toFixed(2)}m
+            <span className={`font-normal ${faint}`}>
+              —{" "}
+              {t("config.trayDetail", {
+                count: positions.length,
+                length: tray.length_m.toFixed(2),
+              })}
             </span>
           </h3>
           <PreviewTable positions={positions} />
@@ -378,22 +376,15 @@ export default function HangerConfigForm({
         </section>
       ))}
 
-      {/* 8. Action Buttons */}
+      {/* 9. Action buttons */}
       <section className="flex gap-3">
-        <button
-          onClick={handlePush}
-          disabled={!canPush}
-          className="inline-flex items-center gap-1.5 rounded-md bg-sky-500 px-4 py-2 text-sm font-medium text-slate-950 hover:bg-sky-400 disabled:cursor-not-allowed disabled:opacity-40"
-        >
+        <button onClick={handlePush} disabled={!canPush} className={actionButton}>
           <Send size={18} />
-          {submitting ? "Pushing..." : `Push ${stats.total} hangers to Revit`}
+          {submitting ? t("config.pushing") : t("config.push", { count: stats.total })}
         </button>
-        <button
-          onClick={handleCancel}
-          className="inline-flex items-center gap-1.5 rounded-md border border-slate-700 px-4 py-2 text-sm text-slate-300 hover:bg-slate-800"
-        >
+        <button onClick={handleCancel} className={secondaryButton}>
           <X size={18} />
-          Cancel
+          {t("common.cancel")}
         </button>
       </section>
 
@@ -402,22 +393,42 @@ export default function HangerConfigForm({
   );
 }
 
+function Section({
+  icon,
+  title,
+  children,
+}: {
+  icon: ReactNode;
+  title: string;
+  children: ReactNode;
+}) {
+  return (
+    <section className="flex flex-col gap-2">
+      <span className={labelClass}>
+        {icon}
+        {title}
+      </span>
+      {children}
+    </section>
+  );
+}
+
 function StatCard({
   icon,
   label,
   value,
 }: {
-  icon: React.ReactNode;
+  icon: ReactNode;
   label: string;
   value: number;
 }) {
   return (
-    <div className="flex flex-col gap-1 rounded-lg border border-slate-800 bg-slate-900/50 p-3">
-      <div className="flex items-center gap-1.5 text-xs text-slate-400">
+    <div className={`flex flex-col gap-1 p-3 ${surface}`}>
+      <div className={`flex items-center gap-1.5 text-xs ${muted}`}>
         {icon}
         {label}
       </div>
-      <span className="text-2xl font-semibold text-slate-100">{value}</span>
+      <span className="text-2xl font-semibold text-slate-900 dark:text-slate-100">{value}</span>
     </div>
   );
 }

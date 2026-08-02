@@ -36,6 +36,11 @@ internal sealed record HangerSpot(double Normalized, XYZ Point);
 /// spacing did not ask for it. A tray with no room to slide gives its share of
 /// the shift to the other one; if there is still no room, the position is
 /// skipped rather than built inside its neighbour.
+///
+/// A hanger that was in the model before the sync started plays by different
+/// rules: it neither moves nor makes room. It was placed or revised by a person
+/// and the whole point of finding it is to leave it exactly as it is, so a
+/// position that lands on one is dropped rather than doubled up or nudged.
 /// </summary>
 internal sealed class PlacedHangers
 {
@@ -46,12 +51,22 @@ internal sealed class PlacedHangers
     private const double MinFootprintMm = 300.0;
 
     /// <summary>A hanger standing in the model, and what it would take to move it.</summary>
-    private sealed class Standing(ElementId id, Curve curve, double halfFootprintFt, HangerSpot spot)
+    private sealed class Standing(
+        ElementId? id,
+        Curve curve,
+        double halfFootprintFt,
+        HangerSpot spot,
+        bool preexisting)
     {
-        public ElementId Id { get; } = id;
+        /// <summary>Null for a hanger this sync did not create and will not touch.</summary>
+        public ElementId? Id { get; } = id;
+
         public Curve Curve { get; } = curve;
         public double HalfFootprintFt { get; } = halfFootprintFt;
         public HangerSpot Spot { get; set; } = spot;
+
+        /// <summary>Already in the model when the sync began — never moved, never written to.</summary>
+        public bool Preexisting { get; } = preexisting;
     }
 
     private readonly List<Standing> _standing = [];
@@ -61,6 +76,9 @@ internal sealed class PlacedHangers
 
     /// <summary>Positions dropped because no amount of sliding made room.</summary>
     public int Skipped { get; private set; }
+
+    /// <summary>Positions dropped because a hanger was already standing there.</summary>
+    public int AlreadyHung { get; private set; }
 
     /// <summary>
     /// A hanger straddles its tray, so the room it needs is the tray's own
@@ -84,6 +102,16 @@ internal sealed class PlacedHangers
             return spot;
         }
 
+        // A hanger that predates this sync answers the question on its own:
+        // this place is taken. Nothing is added beside it, and nothing about it
+        // is touched — so a height revised in Revit survives the push that
+        // would otherwise have written over it.
+        if (other.Preexisting)
+        {
+            AlreadyHung++;
+            return null;
+        }
+
         // Half the shortfall each. Both are at the joint, so "away from the
         // other" is into their own runs, in opposite directions.
         var half = Shortfall(spot.Point, halfFt, other) / 2.0;
@@ -103,11 +131,20 @@ internal sealed class PlacedHangers
             spot = mine;
         }
 
-        if (Clash(spot.Point, halfFt, null) is not null)
+        if (Clash(spot.Point, halfFt, null) is { } blocker)
         {
-            // Two stubs shorter than the hangers they carry. Better one hanger
-            // at the joint than two inside each other.
-            Skipped++;
+            // Two stubs shorter than the hangers they carry, or a slide that
+            // moved the position onto something that predates the sync.
+            // Better one hanger at the joint than two inside each other.
+            if (blocker.Preexisting)
+            {
+                AlreadyHung++;
+            }
+            else
+            {
+                Skipped++;
+            }
+
             return null;
         }
 
@@ -121,17 +158,56 @@ internal sealed class PlacedHangers
     /// must not push its neighbour aside for a hanger that never appeared.
     /// </summary>
     public void Claim(ElementId id, Curve curve, double trayWidthMm, HangerSpot spot) =>
-        _standing.Add(new Standing(id, curve, HalfFootprintFt(trayWidthMm), spot));
+        _standing.Add(new Standing(id, curve, HalfFootprintFt(trayWidthMm), spot, preexisting: false));
+
+    /// <summary>
+    /// Records a hanger that was already in the model when the sync began, so
+    /// nothing this sync places lands on top of it.
+    ///
+    /// The spot is the hanger's origin projected onto its tray's centreline,
+    /// which is where every position this add-in places also sits — comparing
+    /// the two directly is what makes the check independent of how far the
+    /// family's insertion point happens to be above or below the tray.
+    /// </summary>
+    public void ClaimExisting(Curve curve, double trayWidthMm, HangerSpot spot) =>
+        _standing.Add(new Standing(null, curve, HalfFootprintFt(trayWidthMm), spot, preexisting: true));
 
     /// <summary>How far short of clearing each other the two are.</summary>
     private static double Shortfall(XYZ point, double halfFt, Standing other) =>
         halfFt + other.HalfFootprintFt - other.Spot.Point.DistanceTo(point);
 
-    /// <summary>The first standing hanger this one would be inside, if any.</summary>
-    private Standing? Clash(XYZ point, double halfFt, Standing? ignoring) =>
-        _standing.FirstOrDefault(standing =>
-            !ReferenceEquals(standing, ignoring)
-            && standing.Spot.Point.DistanceTo(point) < halfFt + standing.HalfFootprintFt);
+    /// <summary>
+    /// A standing hanger this one would be inside, if any — preferring one that
+    /// predates the sync.
+    ///
+    /// Which one comes back decides whether the position is nudged or dropped,
+    /// so it must not be whichever happens to be first in the list. Existing
+    /// hangers are seeded before any are placed, so today they are first
+    /// anyway; stating the preference means the answer does not change the day
+    /// something else is added to the list.
+    /// </summary>
+    private Standing? Clash(XYZ point, double halfFt, Standing? ignoring)
+    {
+        Standing? clash = null;
+
+        foreach (var standing in _standing)
+        {
+            if (ReferenceEquals(standing, ignoring)
+                || standing.Spot.Point.DistanceTo(point) >= halfFt + standing.HalfFootprintFt)
+            {
+                continue;
+            }
+
+            if (standing.Preexisting)
+            {
+                return standing;
+            }
+
+            clash ??= standing;
+        }
+
+        return clash;
+    }
 
     /// <summary>
     /// Steps a spot along its own tray, in whichever direction takes it further
@@ -158,12 +234,19 @@ internal sealed class PlacedHangers
             : new HangerSpot(backward, backwardPoint);
     }
 
-    /// <summary>Slides a hanger that is already in the model. False if it would not go.</summary>
+    /// <summary>Slides a hanger this sync placed. False if it would not go.</summary>
     private static bool Move(Document document, Standing standing, HangerSpot target)
     {
+        // A hanger that predates the sync is not ours to move; MakeRoom bails
+        // out before reaching here, and this says so rather than relying on it.
+        if (standing.Preexisting || standing.Id is not { } id)
+        {
+            return false;
+        }
+
         try
         {
-            return document.GetElement(standing.Id)?.Location is { } location
+            return document.GetElement(id)?.Location is { } location
                    && location.Move(target.Point - standing.Spot.Point);
         }
         catch (Autodesk.Revit.Exceptions.ApplicationException)

@@ -128,6 +128,72 @@ public sealed class SyncCommand : IExternalCommand
             return Result.Failed;
         }
 
+        // What is hanging in this model right now, rather than what the scan
+        // saw. A scan is a snapshot: hangers appear between taking one and
+        // syncing it — placed by hand, by an earlier sync of the same config,
+        // or by somebody else in a workshared model — and every one of them is
+        // a duplicate waiting to happen. Asking the model at the moment of
+        // placement is the only check that cannot be out of date.
+        var centrelines = HangerLookup.Centrelines(resolved.Select(entry => entry.Element));
+        var standing = HangerLookup.OnTrays(
+            centrelines,
+            HangerLookup.FindInstances(document, settings.HangerFamilyKeyword),
+            settings.HangerHeightParameter);
+
+        // Indexed rather than ToDictionary: a configuration naming the same tray
+        // twice is not worth throwing an exception over.
+        var widthByTray = new Dictionary<ElementId, double>();
+
+        foreach (var entry in resolved)
+        {
+            widthByTray[entry.Element.Id] = entry.Tray.TrayWidthMm;
+        }
+
+        var hungTrays = HangerLookup.CountPerTray(standing);
+
+        // A tray with hangers on it is left entirely alone — not topped up, not
+        // re-spaced. Hangers get moved and heights get revised in Revit after
+        // they are placed, and there is no way to add to a run without putting
+        // that work at risk. Only the empty runs are filled.
+        var toPlace = new List<(ConfigTrayDto Tray, Element Element)>();
+        var alreadyHung = new List<string>();
+        var alreadyHungHangers = 0;
+
+        foreach (var entry in resolved)
+        {
+            if (!hungTrays.TryGetValue(entry.Element.Id, out var found) || found.Count == 0)
+            {
+                toPlace.Add(entry);
+                continue;
+            }
+
+            alreadyHungHangers += entry.Tray.PlacementPositions.Count;
+            alreadyHung.Add(
+                $"{entry.Tray.CableTrayName}: {found.Count} already there"
+                + (found.HeightMm is { } height ? $" at {height:0.##}mm" : "")
+                + ".");
+        }
+
+        if (toPlace.Count == 0)
+        {
+            // Nothing to do, and nothing wrong: every run in the configuration
+            // is already hung. Marking it synced rather than leaving it pending
+            // stops the same config being offered again on the next sync.
+            ReportOutcome(client, config, 0, succeeded: true);
+            TaskDialog.Show(
+                "Sync Hangers",
+                $"Nothing to place — all {resolved.Count} cable trays in this configuration "
+                + "already carry hangers, so they were left untouched:\n\n"
+                + string.Join("\n", alreadyHung.Take(MaxReportedFailures))
+                + (alreadyHung.Count > MaxReportedFailures
+                    ? $"\n... and {alreadyHung.Count - MaxReportedFailures} more."
+                    : "")
+                + "\n\nHeights revised in Revit are safe: an existing hanger is never moved and "
+                + "never written to. To re-hang a run, delete its hangers first, then scan and "
+                + "push again.");
+            return Result.Cancelled;
+        }
+
         var placed = 0;
 
         // Which family type each tray width resolved to, so the dialog can show
@@ -139,6 +205,18 @@ public sealed class SyncCommand : IExternalCommand
         // is one place rather than two.
         var placedHangers = new PlacedHangers();
 
+        // Seeded with what is already there, including the hangers on the trays
+        // skipped above. Skipping a hung tray is not enough on its own: an empty
+        // run that meets a hung one at a bend still schedules a hanger at the
+        // joint, and that joint is where the hung run's end hanger is standing.
+        foreach (var hanger in standing)
+        {
+            placedHangers.ClaimExisting(
+                hanger.TrayCurve,
+                widthByTray.TryGetValue(hanger.TrayId, out var width) ? width : 0,
+                hanger.Spot);
+        }
+
         // A dimension the family would not take. The hangers are standing; it
         // is the size that is not what was asked for.
         var warnings = new List<string>();
@@ -149,7 +227,7 @@ public sealed class SyncCommand : IExternalCommand
         {
             transaction.Start();
 
-            foreach (var (tray, element) in resolved)
+            foreach (var (tray, element) in toPlace)
             {
                 // One type per width is the family author's job; picking the
                 // right one is ours.
@@ -189,6 +267,23 @@ public sealed class SyncCommand : IExternalCommand
             if (placed == 0)
             {
                 transaction.RollBack();
+
+                // Nothing was built, but "could not" is only half the reasons.
+                // A position dropped because a hanger was already standing on it
+                // is the add-in doing its job, and calling that a failure sent
+                // the config to FAILED for behaving correctly.
+                if (failures.Count == 0 && placedHangers.AlreadyHung > 0)
+                {
+                    ReportOutcome(client, config, 0, succeeded: true);
+                    TaskDialog.Show(
+                        "Sync Hangers",
+                        $"Nothing to place — all {placedHangers.AlreadyHung} positions in this "
+                        + "configuration already have a hanger standing on them, so nothing was "
+                        + "added and nothing was changed.\n\nHeights revised in Revit are safe: an "
+                        + "existing hanger is never moved and never written to.");
+                    return Result.Cancelled;
+                }
+
                 ReportOutcome(client, config, 0, succeeded: false);
                 message = "No hangers could be placed:\n\n"
                           + string.Join("\n", failures.Take(MaxReportedFailures));
@@ -204,7 +299,7 @@ public sealed class SyncCommand : IExternalCommand
         ReportOutcome(client, config, placed, allPlaced);
 
         var summary = $"Placed {placed} of {config.TotalHangers} hangers "
-                      + $"across {resolved.Count} of {config.Trays.Count} cable trays.";
+                      + $"across {toPlace.Count} of {config.Trays.Count} cable trays.";
 
         // Account for every hanger that is not in the model, by name. "Placed
         // 41 of 68" on its own invites the reading that 27 went wrong, when
@@ -217,6 +312,21 @@ public sealed class SyncCommand : IExternalCommand
             unaccounted.Add(
                 $"{lost} belong to {missing.Count} cable "
                 + $"{(missing.Count == 1 ? "tray that is" : "trays that are")} not in this model");
+        }
+
+        if (alreadyHungHangers > 0)
+        {
+            unaccounted.Add(
+                $"{alreadyHungHangers} belong to {alreadyHung.Count} cable "
+                + $"{(alreadyHung.Count == 1 ? "tray that already carries" : "trays that already carry")} "
+                + "hangers, left untouched");
+        }
+
+        if (placedHangers.AlreadyHung > 0)
+        {
+            unaccounted.Add(
+                $"{placedHangers.AlreadyHung} landed where a hanger was already standing and were "
+                + "dropped rather than doubled up");
         }
 
         if (placedHangers.Skipped > 0)
@@ -244,6 +354,18 @@ public sealed class SyncCommand : IExternalCommand
                            ? $"\n... and {missing.Count - MaxReportedFailures} more."
                            : "")
                        + "\n\n" + StaleScanAdvice;
+        }
+
+        if (alreadyHung.Count > 0)
+        {
+            summary += "\n\nLeft untouched because they already carry hangers:\n  "
+                       + string.Join("\n  ", alreadyHung.Take(MaxReportedFailures))
+                       + (alreadyHung.Count > MaxReportedFailures
+                           ? $"\n  ... and {alreadyHung.Count - MaxReportedFailures} more."
+                           : "")
+                       + "\n\nAn existing hanger is never moved and never written to, so a height "
+                       + "revised in Revit survives this and every later push. To re-hang one of "
+                       + "these runs, delete its hangers first.";
         }
 
         // Placed, so not part of the accounting above — but worth saying, since
@@ -276,7 +398,7 @@ public sealed class SyncCommand : IExternalCommand
         if (warnings.Count > 0)
         {
             summary += $"\n\nThe hangers are placed, but {warnings.Count} of the "
-                       + $"{resolved.Count} trays did not take a dimension:\n"
+                       + $"{toPlace.Count} trays did not take a dimension:\n"
                        + string.Join("\n", warnings.Take(MaxReportedFailures))
                        + (warnings.Count > MaxReportedFailures
                            ? $"\n... and {warnings.Count - MaxReportedFailures} more."
