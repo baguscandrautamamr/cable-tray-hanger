@@ -230,6 +230,32 @@ come out facing the wrong way, that is the one number to change.
 **Height is the one dimension the model cannot supply**, so the web app asks
 for it — and it is written *only* onto hangers the add-in creates.
 
+### Vertical runs get no hangers
+
+A hanger holds a tray up from above. A riser is not held up from above by
+anything — it is clamped to a wall or a strut — so a hanger spaced along one
+stands in mid-air beside the tray. Any run climbing more than 60° from the
+horizontal is therefore left out of a config entirely, and the form says which
+ones and why. Sixty degrees leaves a steeply ramped run, which does still want
+hangers, on the right side of the line. The add-in works this out from the
+run's own geometry; nothing has to be told which trays they are.
+
+### Hangers already close together do not get another one
+
+Two runs meeting at a bend each schedule a hanger at the point they share, and
+the payload cannot see that: it carries offsets along one tray at a time, not
+coordinates. An earlier version nudged both of them apart along their own runs
+so the bend kept support on each side. The result was pairs of hangers propping
+each other up around every bend and tee, which is not support, it is clutter.
+
+Now a position is simply dropped when a hanger is already within **half the
+configured spacing** of it — 750mm on a 1500 spacing. Half the spacing rather
+than a fixed clearance because "too close together" only means anything
+relative to what was asked for; two hangers 400mm apart do not clash, they are
+both there when one would do. Physical clearance (the tray's own width, never
+less than 300mm) is the floor under that, for a spacing tight enough that half
+of it would still let two overlap. The Sync dialog counts what it dropped.
+
 ### A tray that already has hangers is never touched again
 
 This is the rule the revision loop turns on, and it is enforced in three
@@ -295,6 +321,25 @@ matches nothing does **not** empty the dropdown: the add-in sends every cable
 tray fitting family instead and flags that it did, and the web app names the
 keyword that failed. Only a real keyword match is used to recognise hangers
 already in the model — falling back there would class every elbow as a hanger.
+
+## Dimensions
+
+The add-in can draw a continuous dimension along each run of hangers it places.
+It is off by default and lives in the add-in's **Settings** dialog — a checkbox
+and a dropdown of the model's linear dimension styles ("Linear - 3mm Arial" and
+whatever else is loaded) — rather than on the web form. Two reasons: the list
+of styles exists only inside the Revit model, so putting the choice in the
+browser would mean shipping it up in a scan and back down in a config for
+something only the add-in can act on; and a dimension style is a drawing
+standard that is the same for every run, unlike spacing and height, which are
+decided per push.
+
+Dimensions are **view-specific** — they are drawn in whichever view is active
+when you press Sync, and a 3D view has to be locked first (*Save Orientation
+and Lock View*), because Revit will not dimension in one that can still rotate.
+They are also drawn in their own transaction after the hangers are committed,
+so a style that will not draw is reported and undone on its own and never takes
+a correct placement with it.
 
 ## Deploy
 

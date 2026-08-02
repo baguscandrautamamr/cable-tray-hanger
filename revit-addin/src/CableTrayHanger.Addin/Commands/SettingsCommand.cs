@@ -20,7 +20,13 @@ public sealed class SettingsCommand : IExternalCommand
         try
         {
             var settings = AddinSettings.Load();
-            var window = new SettingsWindow(settings);
+
+            // Only for the dimension style dropdown, which lists what this
+            // model has loaded. Null is fine: the dialog falls back to a plain
+            // text box, because these settings belong to the Windows user and
+            // are worth being able to edit with no project open.
+            var document = commandData.Application.ActiveUIDocument?.Document;
+            var window = new SettingsWindow(settings, document);
 
             window.ShowDialogOver(commandData.Application.MainWindowHandle);
 

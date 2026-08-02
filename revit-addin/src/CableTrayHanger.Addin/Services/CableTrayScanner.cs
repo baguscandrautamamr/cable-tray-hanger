@@ -81,6 +81,7 @@ internal static class CableTrayScanner
             WidthMm = UnitUtils.ConvertFromInternalUnits(GetWidthFt(tray), UnitTypeId.Millimeters),
             ExistingHangerCount = found?.Count ?? 0,
             ExistingHangerHeightMm = found?.HeightMm,
+            IsVertical = HangerLookup.IsRiser(tray),
         };
     }
 

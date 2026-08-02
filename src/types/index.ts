@@ -34,6 +34,14 @@ export interface CableTray {
    * rather than averaging into a number that matches no actual hanger.
    */
   existing_hanger_height_mm?: number | null;
+
+  /**
+   * True for a riser — a run climbing too steeply to be hung from above. A
+   * hanger spaced along a vertical drop stands in mid-air beside it, so these
+   * are left out of a config entirely. Absent on scans from an add-in build
+   * older than this field, which reads as false.
+   */
+  is_vertical?: boolean;
 }
 
 export interface HangerFamily {
@@ -138,6 +146,9 @@ export interface HangerConfigResult {
   total_hangers: number;
   /** Trays left out because they already carry hangers. */
   skipped_trays: { cable_tray_name: string; existing_hanger_count: number }[];
+
+  /** Trays left out because they are risers, by name. */
+  vertical_trays: string[];
   message: string;
 }
 

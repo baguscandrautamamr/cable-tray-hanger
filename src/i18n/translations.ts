@@ -105,12 +105,19 @@ const en = {
   "config.skipped.item": "{name} — {count} hangers",
   "config.skipped.itemAtHeight": "{name} — {count} hangers at {height}mm",
 
+  "config.vertical.title": "{vertical} of {total} cable trays are vertical runs",
+  "config.vertical.body":
+    "A hanger holds a tray up from above, and a riser is not held up from above by anything — a " +
+    "hanger spaced along one would stand in mid-air beside it. These are left out entirely; " +
+    "support them with wall clamps or struts instead.",
+
   "config.trays": "Cable trays to hang ({count})",
   "config.trays.tray": "Tray",
   "config.trays.length": "Length",
   "config.trays.width": "Width",
   "config.trays.hangers": "Hangers",
-  "config.trays.empty": "No trays to place — every scanned tray already has hangers.",
+  "config.trays.empty":
+    "No trays to place — every scanned tray either already has hangers or is a vertical run.",
   "config.trays.note":
     "Every empty tray in the scan is included. Hanger width follows each tray's own width.",
 
@@ -261,12 +268,20 @@ const id: Record<TranslationKey, string> = {
   "config.skipped.item": "{name} — {count} hanger",
   "config.skipped.itemAtHeight": "{name} — {count} hanger pada {height}mm",
 
+  "config.vertical.title": "{vertical} dari {total} cable tray adalah jalur vertikal",
+  "config.vertical.body":
+    "Hanger menahan tray dari atas, sedangkan jalur vertikal tidak ditahan dari atas oleh apa pun " +
+    "— hanger yang dipasang menyusurinya akan menggantung di udara di samping tray. Jalur seperti " +
+    "ini tidak diikutkan sama sekali; topang dengan klem dinding atau strut.",
+
   "config.trays": "Cable tray yang akan dipasangi ({count})",
   "config.trays.tray": "Tray",
   "config.trays.length": "Panjang",
   "config.trays.width": "Lebar",
   "config.trays.hangers": "Hanger",
-  "config.trays.empty": "Tidak ada tray yang perlu dipasangi — semua tray hasil pindai sudah punya hanger.",
+  "config.trays.empty":
+    "Tidak ada tray yang perlu dipasangi — semua tray hasil pindai sudah punya hanger atau " +
+    "merupakan jalur vertikal.",
   "config.trays.note":
     "Semua tray kosong dari pemindaian ikut serta. Lebar hanger mengikuti lebar tray masing-masing.",
 

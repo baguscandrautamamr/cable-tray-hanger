@@ -28,6 +28,49 @@ public sealed class SyncCommand : IExternalCommand
         + "id, so a configuration built from an older scan can no longer find it. Run Scan "
         + "Cable Tray again, push a new configuration from the web app, and sync that.";
 
+    /// <summary>Names in a readable list, trimmed so a dialog stays a dialog.</summary>
+    private static string Join(IReadOnlyList<string> names) =>
+        string.Join(", ", names.Take(MaxReportedFailures))
+        + (names.Count > MaxReportedFailures ? $" and {names.Count - MaxReportedFailures} more" : "");
+
+    /// <summary>
+    /// Draws the run dimensions, in a transaction of their own.
+    ///
+    /// Everything here is best effort. The hangers are already committed by the
+    /// time this runs, so a dimension style that will not draw — or a view that
+    /// will not hold dimensions — is reported and rolled back on its own,
+    /// leaving the placement exactly as it was.
+    /// </summary>
+    private static DimensionOutcome Annotate(
+        Document document,
+        View view,
+        IReadOnlyCollection<HangerRun> runs,
+        AddinSettings settings)
+    {
+        try
+        {
+            using var transaction = new Transaction(document, "Dimension hanger runs");
+            transaction.Start();
+
+            var outcome = HangerDimensioner.Annotate(document, view, runs, settings);
+
+            if (outcome.Created > 0)
+            {
+                transaction.Commit();
+            }
+            else
+            {
+                transaction.RollBack();
+            }
+
+            return outcome;
+        }
+        catch (Exception ex)
+        {
+            return new DimensionOutcome(0, [$"{ex.GetType().Name}: {ex.Message}"]);
+        }
+    }
+
     private static string Describe(ConfigTrayDto tray) =>
         $"{tray.CableTrayName} (id {tray.CableTrayId}): "
         + $"not in this model — {tray.PlacementPositions.Count} hangers.";
@@ -170,8 +213,22 @@ public sealed class SyncCommand : IExternalCommand
         var alreadyHung = new List<string>();
         var alreadyHungHangers = 0;
 
+        // A riser is not hung from above by anything, so a hanger spaced along
+        // one stands in mid-air beside it. The web app leaves these out of a
+        // config already; this catches a run that was made vertical after the
+        // scan, and a config built before the web app knew to.
+        var risers = new List<string>();
+        var riserHangers = 0;
+
         foreach (var entry in resolved)
         {
+            if (HangerLookup.IsRiser(entry.Element))
+            {
+                riserHangers += entry.Tray.PlacementPositions.Count;
+                risers.Add(entry.Tray.CableTrayName);
+                continue;
+            }
+
             if (!hungTrays.TryGetValue(entry.Element.Id, out var found) || found.Count == 0)
             {
                 toPlace.Add(entry);
@@ -193,13 +250,17 @@ public sealed class SyncCommand : IExternalCommand
             ReportOutcome(client, config, 0, succeeded: true);
             TaskDialog.Show(
                 "Sync Hangers",
-                $"Nothing to place — all {resolved.Count} cable trays in this configuration "
-                + "already carry hangers, so they were left untouched:\n\n"
-                + string.Join("\n", alreadyHung.Take(MaxReportedFailures))
-                + (alreadyHung.Count > MaxReportedFailures
-                    ? $"\n... and {alreadyHung.Count - MaxReportedFailures} more."
+                $"Nothing to place. Of the {resolved.Count} cable trays in this configuration:\n\n"
+                + (alreadyHung.Count > 0
+                    ? $"  {alreadyHung.Count} already carry hangers and were left untouched:\n    "
+                      + string.Join("\n    ", alreadyHung.Take(MaxReportedFailures))
+                      + (alreadyHung.Count > MaxReportedFailures
+                          ? $"\n    ... and {alreadyHung.Count - MaxReportedFailures} more."
+                          : "")
+                      + "\n"
                     : "")
-                + "\n\nHeights revised in Revit are safe: an existing hanger is never moved and "
+                + (risers.Count > 0 ? $"  {risers.Count} are vertical runs: {Join(risers)}\n" : "")
+                + "\nHeights revised in Revit are safe: an existing hanger is never moved and "
                 + "never written to. To re-hang a run, delete its hangers first, then scan and "
                 + "push again.");
             return Result.Cancelled;
@@ -213,8 +274,10 @@ public sealed class SyncCommand : IExternalCommand
 
         // Shared by every tray in the run: two trays meeting at a bend each
         // schedule a hanger at the joint, and only their coordinates say that
-        // is one place rather than two.
-        var placedHangers = new PlacedHangers();
+        // is one place rather than two. The spacing goes in because "too close
+        // together" is measured against what was asked for, not against the
+        // width of a bracket.
+        var placedHangers = new PlacedHangers(config.SpacingMm);
 
         // Seeded with what is already there, including the hangers on the trays
         // skipped above. Skipping a hung tray is not enough on its own: an empty
@@ -223,7 +286,6 @@ public sealed class SyncCommand : IExternalCommand
         foreach (var hanger in standing)
         {
             placedHangers.ClaimExisting(
-                hanger.TrayCurve,
                 widthByTray.TryGetValue(hanger.TrayId, out var width) ? width : 0,
                 hanger.Spot);
         }
@@ -231,6 +293,11 @@ public sealed class SyncCommand : IExternalCommand
         // A dimension the family would not take. The hangers are standing; it
         // is the size that is not what was asked for.
         var warnings = new List<string>();
+
+        // Kept for the annotation pass, which runs after this transaction has
+        // committed so a dimension that will not draw cannot take the hangers
+        // with it.
+        var runs = new List<HangerRun>();
 
         // One transaction for the whole run: a half-placed model is worse than
         // an unplaced one, and a single undo should take all of it back.
@@ -266,7 +333,13 @@ public sealed class SyncCommand : IExternalCommand
                     // time it is asked.
                     verifyGeometry: placed == 0);
 
-                placed += outcome.Placed;
+                placed += outcome.Placed.Count;
+
+                if (outcome.Placed.Count > 0)
+                {
+                    runs.Add(new HangerRun(tray.CableTrayName, outcome.Placed));
+                }
+
                 failures.AddRange(outcome.Failures.Select(failure => $"{tray.CableTrayName}: {failure}"));
 
                 if (outcome.Warning is { } warning)
@@ -304,6 +377,14 @@ public sealed class SyncCommand : IExternalCommand
             transaction.Commit();
         }
 
+        // Annotation, in its own transaction and its own undo step, after the
+        // hangers are safely in the model. A dimension style that will not
+        // draw is a drawing problem; it must not roll back a correct placement,
+        // and it must not stop the outcome being reported to the web app.
+        var dimensions = settings.CreateDimensions
+            ? Annotate(document, uiDocument.ActiveView, runs, settings)
+            : null;
+
         // A warning is not a failure: those hangers are in the model. Only a
         // tray that was never reached, or a position Revit refused, is.
         var allPlaced = failures.Count == 0 && missing.Count == 0;
@@ -336,15 +417,23 @@ public sealed class SyncCommand : IExternalCommand
         if (placedHangers.AlreadyHung > 0)
         {
             unaccounted.Add(
-                $"{placedHangers.AlreadyHung} landed where a hanger was already standing and were "
-                + "dropped rather than doubled up");
+                $"{placedHangers.AlreadyHung} fell too close to a hanger that was already in the "
+                + "model and were dropped rather than doubled up");
         }
 
-        if (placedHangers.Skipped > 0)
+        if (riserHangers > 0)
         {
             unaccounted.Add(
-                $"{placedHangers.Skipped} had nowhere to stand clear of the hanger already there — "
-                + "runs too short to hold two");
+                $"{riserHangers} belong to {risers.Count} vertical "
+                + $"{(risers.Count == 1 ? "run" : "runs")}, which are not hung from above: "
+                + Join(risers));
+        }
+
+        if (placedHangers.TooClose > 0)
+        {
+            unaccounted.Add(
+                $"{placedHangers.TooClose} fell within half the spacing of another hanger in this "
+                + "push — where two runs meet, one hanger holds the joint");
         }
 
         if (failures.Count > 0)
@@ -379,13 +468,20 @@ public sealed class SyncCommand : IExternalCommand
                        + "these runs, delete its hangers first.";
         }
 
-        // Placed, so not part of the accounting above — but worth saying, since
-        // these are the hangers that are not exactly where the spacing put them.
-        if (placedHangers.Separated > 0)
+        if (dimensions is { } drawn)
         {
-            summary += $"\n\n{placedHangers.Separated} pairs met at a joint and were stepped apart "
-                       + "along their own runs, so the bend keeps a hanger on each side without "
-                       + "the two clashing.";
+            summary += drawn.Created > 0
+                ? $"\n\nDimensioned {drawn.Created} of {runs.Count} runs in "
+                  + $"{uiDocument.ActiveView.Name}."
+                : $"\n\nNo dimensions were drawn in {uiDocument.ActiveView.Name}.";
+
+            if (drawn.Problems.Count > 0)
+            {
+                summary += "\n  " + string.Join("\n  ", drawn.Problems.Take(MaxReportedFailures));
+            }
+
+            summary += "\n\nThe hangers are unaffected either way — dimensions are drawn "
+                       + "afterwards, in their own undo step.";
         }
 
         if (config.HangerHeightMm is > 0)

@@ -77,6 +77,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     config_id: data.id,
     hanger_family_name: data.hanger_family_name,
     hanger_height_mm: data.hanger_height_mm,
+    // The positions already encode it, but the add-in needs the number itself:
+    // two hangers arriving at a shared joint from different trays are "too
+    // close together" relative to the spacing that was asked for, and neither
+    // tray's own list of positions says what that was.
+    spacing_mm: data.spacing_mm,
     trays,
     total_hangers: data.total_hangers_calculated,
   });

@@ -48,6 +48,12 @@ interface PlannedTray {
 /** Hangers already on a tray, as the model reported them at scan time. */
 const existingCount = (tray: CableTray) => tray.existing_hanger_count ?? 0;
 
+/**
+ * A tray this config will not touch, and why. Both reasons leave the tray
+ * exactly as it is, so they are two lists rather than one flag.
+ */
+const isSkipped = (tray: CableTray) => existingCount(tray) > 0 || tray.is_vertical === true;
+
 export default function HangerConfigForm({
   session,
   onProjectName,
@@ -106,13 +112,21 @@ export default function HangerConfigForm({
     [scan],
   );
 
+  // A riser is not held up from above by anything, so a hanger spaced along one
+  // stands in mid-air beside the tray. The add-in works this out from the run's
+  // own geometry; nothing here has to be told which ones they are.
+  const verticalTrays = useMemo(
+    () => (scan?.cable_trays ?? []).filter((tray) => tray.is_vertical),
+    [scan],
+  );
+
   // Every *empty* tray is planned — there is nothing to pick. Selecting runs
   // one at a time was the slow part of the job.
   const plannedTrays = useMemo<PlannedTray[]>(() => {
     if (!scan || !spacingValid) return [];
 
     return scan.cable_trays.flatMap((tray) => {
-      if (existingCount(tray) > 0) return [];
+      if (isSkipped(tray)) return [];
 
       try {
         return [{ tray, positions: calculatePlacements(tray.length_m, spacingMm) }];
@@ -230,6 +244,23 @@ export default function HangerConfigForm({
                     })
                   : t("config.skipped.item", { name: tray.name, count: existingCount(tray) })}
               </li>
+            ))}
+          </ul>
+        </StatusAlert>
+      )}
+
+      {verticalTrays.length > 0 && (
+        <StatusAlert
+          kind="info"
+          message={t("config.vertical.title", {
+            vertical: verticalTrays.length,
+            total: scan?.cable_trays.length ?? verticalTrays.length,
+          })}
+        >
+          <p>{t("config.vertical.body")}</p>
+          <ul className="list-inside list-disc">
+            {verticalTrays.map((tray) => (
+              <li key={tray.id}>{tray.name}</li>
             ))}
           </ul>
         </StatusAlert>

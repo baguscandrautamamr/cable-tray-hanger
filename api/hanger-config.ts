@@ -76,11 +76,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       existing_hanger_count: tray.existing_hanger_count ?? 0,
     }));
 
+  // A riser is not held up from above by anything, so a hanger spaced along one
+  // stands in mid-air beside the tray rather than under it.
+  const vertical = scannedTrays.filter((tray) => tray.is_vertical).map((tray) => tray.name);
+
   const trays: ConfigTray[] = [];
   const rejected: string[] = [];
 
   for (const tray of scannedTrays) {
-    if ((tray.existing_hanger_count ?? 0) > 0) continue;
+    if ((tray.existing_hanger_count ?? 0) > 0 || tray.is_vertical) continue;
 
     try {
       trays.push({
@@ -98,12 +102,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   if (trays.length === 0) {
+    // Three different reasons for an empty config, and the fix differs for
+    // each — so say which one it was rather than guessing at the commonest.
+    const reasons = [
+      skipped.length > 0 ? `${skipped.length} already have hangers` : "",
+      vertical.length > 0 ? `${vertical.length} are vertical runs` : "",
+      rejected.length > 0 ? `unusable: ${rejected.join("; ")}` : "",
+    ].filter(Boolean);
+
     return res.status(400).json({
       status: "FAILED",
       message:
-        rejected.length === 0
-          ? "Every tray in this scan already has hangers. Nothing left to place."
-          : `No tray could be placed. ${rejected.join("; ")}`,
+        reasons.length === 0
+          ? "Nothing left to place in this scan."
+          : `Nothing left to place — of ${scannedTrays.length} trays, ${reasons.join(", ")}.`,
     });
   }
 
@@ -134,6 +146,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const notes = [
     `${trays.length} ${trays.length === 1 ? "tray" : "trays"}, ${totalHangers} hangers.`,
     skipped.length > 0 ? `${skipped.length} left untouched — they already have hangers.` : "",
+    vertical.length > 0 ? `${vertical.length} left out — vertical runs.` : "",
     rejected.length > 0 ? `Skipped: ${rejected.join("; ")}` : "",
   ].filter(Boolean);
 
@@ -144,6 +157,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     trays,
     total_hangers: totalHangers,
     skipped_trays: skipped,
+    vertical_trays: vertical,
     message: `Config saved. ${notes.join(" ")} Waiting for add-in sync...`,
   });
 }

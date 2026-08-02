@@ -14,33 +14,38 @@ namespace CableTrayHanger.Addin.Services;
 /// the family would not take describes hangers that are standing in the model,
 /// and counting it as a failure made "10 could not be placed" mean ten
 /// messages rather than ten hangers.
+///
+/// `Placed` is the instances themselves rather than a count, in the order they
+/// sit along the run, because dimensioning them afterwards needs both.
 /// </summary>
-internal sealed record PlacementOutcome(int Placed, IReadOnlyList<string> Failures, string? Warning);
+internal sealed record PlacementOutcome(
+    IReadOnlyList<FamilyInstance> Placed,
+    IReadOnlyList<string> Failures,
+    string? Warning);
 
 /// <summary>A place on a tray to build a hanger, as a point and the curve parameter it came from.</summary>
 internal sealed record HangerSpot(double Normalized, XYZ Point);
 
 /// <summary>
-/// Keeps the hangers of one sync out of each other's way.
+/// Decides whether there is room for another hanger, and keeps the answer
+/// consistent across the whole sync.
 ///
-/// Positions arrive from the web app measured along one tray at a time, and
-/// nothing in that payload says two trays meet: it carries lengths and offsets,
-/// not coordinates. So a bend built from two runs puts the END hanger of one
-/// and the START hanger of the next within inches of each other, and only the
-/// add-in is in a position to see it, because only the add-in knows where the
-/// points actually are.
+/// Two things arrive at the same place. Positions come from the web app
+/// measured along one tray at a time, and nothing in that payload says two
+/// trays meet — it carries lengths and offsets, not coordinates — so a bend
+/// built from two runs schedules the END hanger of one and the START hanger of
+/// the next within inches of each other. And hangers already in the model
+/// occupy places the web app knew nothing about.
 ///
-/// Both of them move. Each slides along its own tray, away from the other, by
-/// half of what the pair is short — so the bend keeps its support on both
-/// sides instead of one hanger being dropped, and neither ends up where the
-/// spacing did not ask for it. A tray with no room to slide gives its share of
-/// the shift to the other one; if there is still no room, the position is
-/// skipped rather than built inside its neighbour.
+/// Both are answered the same way: if a hanger is already within the clear
+/// distance, this position is dropped. Nothing is nudged along its tray to fit
+/// beside it, which is what an earlier version did — the result was pairs of
+/// hangers propping each other up around every bend and tee, which is not
+/// support, it is clutter. One hanger at a junction holds the junction.
 ///
-/// A hanger that was in the model before the sync started plays by different
-/// rules: it neither moves nor makes room. It was placed or revised by a person
-/// and the whole point of finding it is to leave it exactly as it is, so a
-/// position that lands on one is dropped rather than doubled up or nudged.
+/// A hanger that predates the sync is never moved and never written to either
+/// way. It was placed or revised by a person, and leaving it exactly as it is
+/// is the whole point of having found it.
 /// </summary>
 internal sealed class PlacedHangers
 {
@@ -50,150 +55,101 @@ internal sealed class PlacedHangers
     /// </summary>
     private const double MinFootprintMm = 300.0;
 
-    /// <summary>A hanger standing in the model, and what it would take to move it.</summary>
-    private sealed class Standing(
-        ElementId? id,
-        Curve curve,
-        double halfFootprintFt,
-        HangerSpot spot,
-        bool preexisting)
-    {
-        /// <summary>Null for a hanger this sync did not create and will not touch.</summary>
-        public ElementId? Id { get; } = id;
-
-        public Curve Curve { get; } = curve;
-        public double HalfFootprintFt { get; } = halfFootprintFt;
-        public HangerSpot Spot { get; set; } = spot;
-
-        /// <summary>Already in the model when the sync began — never moved, never written to.</summary>
-        public bool Preexisting { get; } = preexisting;
-    }
+    /// <summary>A hanger occupying a place, and how much room it takes.</summary>
+    private sealed record Standing(XYZ Point, double HalfFootprintFt, bool Preexisting);
 
     private readonly List<Standing> _standing = [];
 
-    /// <summary>Pairs pushed apart so they clear each other at a joint.</summary>
-    public int Separated { get; private set; }
+    /// <summary>
+    /// How close two hangers may be before one of them is unwanted, in feet.
+    ///
+    /// Physical clearance is the floor, not the rule: two hangers 400mm apart
+    /// on a 1500 spacing do not clash, they are simply both there when one
+    /// would do. Half the spacing is the reading of "too close together" that
+    /// scales with what was asked for, and it is what stops a tee from
+    /// collecting four hangers inside a metre.
+    /// </summary>
+    private readonly double _clearanceFt;
 
-    /// <summary>Positions dropped because no amount of sliding made room.</summary>
-    public int Skipped { get; private set; }
+    public PlacedHangers(double spacingMm) =>
+        _clearanceFt = UnitUtils.ConvertToInternalUnits(
+            Math.Max(spacingMm / 2.0, MinFootprintMm),
+            UnitTypeId.Millimeters);
 
-    /// <summary>Positions dropped because a hanger was already standing there.</summary>
+    /// <summary>Positions dropped because another hanger of this sync was already too close.</summary>
+    public int TooClose { get; private set; }
+
+    /// <summary>Positions dropped because a hanger that predates the sync was too close.</summary>
     public int AlreadyHung { get; private set; }
 
     /// <summary>
-    /// A hanger straddles its tray, so the room it needs is the tray's own
-    /// width. Two 600 trays meeting at a bend want 600mm between their hangers;
-    /// 300mm is what stops two narrow ones from touching.
+    /// A hanger straddles its tray, so the room it needs along the run is the
+    /// tray's own width; 300mm is what stops two narrow ones from touching.
+    /// This is the floor under the clearance, for the case of a spacing so
+    /// tight that half of it would let two hangers overlap.
     /// </summary>
     private static double HalfFootprintFt(double trayWidthMm) =>
         UnitUtils.ConvertToInternalUnits(Math.Max(trayWidthMm, MinFootprintMm), UnitTypeId.Millimeters)
         / 2.0;
 
     /// <summary>
-    /// Finds room for a hanger at `spot`, moving what is already there if it
-    /// has to. Returns where to build it, or null when there is no room.
+    /// Whether a hanger belongs at `spot`. False when one is already close
+    /// enough to be doing the job.
     /// </summary>
-    public HangerSpot? MakeRoom(Document document, Curve curve, double trayWidthMm, HangerSpot spot)
+    public bool Accepts(double trayWidthMm, HangerSpot spot)
     {
         var halfFt = HalfFootprintFt(trayWidthMm);
 
-        if (Clash(spot.Point, halfFt, null) is not { } other)
+        if (Clash(spot.Point, halfFt) is not { } other)
         {
-            return spot;
+            return true;
         }
 
-        // A hanger that predates this sync answers the question on its own:
-        // this place is taken. Nothing is added beside it, and nothing about it
-        // is touched — so a height revised in Revit survives the push that
-        // would otherwise have written over it.
         if (other.Preexisting)
         {
             AlreadyHung++;
-            return null;
         }
-
-        // Half the shortfall each. Both are at the joint, so "away from the
-        // other" is into their own runs, in opposite directions.
-        var half = Shortfall(spot.Point, halfFt, other) / 2.0;
-
-        if (Slide(other.Curve, other.Spot, spot.Point, half) is { } moved
-            && Clash(moved.Point, other.HalfFootprintFt, other) is null
-            && Move(document, other, moved))
+        else
         {
-            other.Spot = moved;
+            TooClose++;
         }
 
-        // Measured again rather than assumed: a hanger that would not move —
-        // pinned, or on a tray with nowhere to go — leaves the whole shift to
-        // this one.
-        if (Slide(curve, spot, other.Spot.Point, Shortfall(spot.Point, halfFt, other)) is { } mine)
-        {
-            spot = mine;
-        }
-
-        if (Clash(spot.Point, halfFt, null) is { } blocker)
-        {
-            // Two stubs shorter than the hangers they carry, or a slide that
-            // moved the position onto something that predates the sync.
-            // Better one hanger at the joint than two inside each other.
-            if (blocker.Preexisting)
-            {
-                AlreadyHung++;
-            }
-            else
-            {
-                Skipped++;
-            }
-
-            return null;
-        }
-
-        Separated++;
-        return spot;
+        return false;
     }
 
     /// <summary>
-    /// Records a hanger that is now standing here. Called after Revit has built
-    /// it, not before: a position Revit refuses leaves nothing in the model, and
-    /// must not push its neighbour aside for a hanger that never appeared.
+    /// Records a hanger this sync has now built. Called after Revit has built
+    /// it, not before: a position Revit refuses leaves nothing in the model and
+    /// must not keep the next hanger out of a place that is in fact empty.
     /// </summary>
-    public void Claim(ElementId id, Curve curve, double trayWidthMm, HangerSpot spot) =>
-        _standing.Add(new Standing(id, curve, HalfFootprintFt(trayWidthMm), spot, preexisting: false));
+    public void Claim(double trayWidthMm, HangerSpot spot) =>
+        _standing.Add(new Standing(spot.Point, HalfFootprintFt(trayWidthMm), preexisting: false));
 
     /// <summary>
-    /// Records a hanger that was already in the model when the sync began, so
-    /// nothing this sync places lands on top of it.
+    /// Records a hanger that was already in the model when the sync began.
     ///
     /// The spot is the hanger's origin projected onto its tray's centreline,
     /// which is where every position this add-in places also sits — comparing
     /// the two directly is what makes the check independent of how far the
     /// family's insertion point happens to be above or below the tray.
     /// </summary>
-    public void ClaimExisting(Curve curve, double trayWidthMm, HangerSpot spot) =>
-        _standing.Add(new Standing(null, curve, HalfFootprintFt(trayWidthMm), spot, preexisting: true));
-
-    /// <summary>How far short of clearing each other the two are.</summary>
-    private static double Shortfall(XYZ point, double halfFt, Standing other) =>
-        halfFt + other.HalfFootprintFt - other.Spot.Point.DistanceTo(point);
+    public void ClaimExisting(double trayWidthMm, HangerSpot spot) =>
+        _standing.Add(new Standing(spot.Point, HalfFootprintFt(trayWidthMm), preexisting: true));
 
     /// <summary>
-    /// A standing hanger this one would be inside, if any — preferring one that
-    /// predates the sync.
-    ///
-    /// Which one comes back decides whether the position is nudged or dropped,
-    /// so it must not be whichever happens to be first in the list. Existing
-    /// hangers are seeded before any are placed, so today they are first
-    /// anyway; stating the preference means the answer does not change the day
-    /// something else is added to the list.
+    /// A hanger too close to this place, if there is one — preferring one that
+    /// predates the sync, so the count says which kind of crowding it was.
     /// </summary>
-    private Standing? Clash(XYZ point, double halfFt, Standing? ignoring)
+    private Standing? Clash(XYZ point, double halfFt)
     {
         Standing? clash = null;
 
         foreach (var standing in _standing)
         {
-            if (ReferenceEquals(standing, ignoring)
-                || standing.Spot.Point.DistanceTo(point) >= halfFt + standing.HalfFootprintFt)
+            // The physical floor and the spacing rule, whichever is larger.
+            var required = Math.Max(halfFt + standing.HalfFootprintFt, _clearanceFt);
+
+            if (standing.Point.DistanceTo(point) >= required)
             {
                 continue;
             }
@@ -207,54 +163,6 @@ internal sealed class PlacedHangers
         }
 
         return clash;
-    }
-
-    /// <summary>
-    /// Steps a spot along its own tray, in whichever direction takes it further
-    /// from `away`. Clamped to the tray, so a short run simply moves less.
-    /// </summary>
-    private static HangerSpot? Slide(Curve curve, HangerSpot spot, XYZ away, double distanceFt)
-    {
-        var lengthFt = curve.Length;
-
-        if (lengthFt <= 0 || distanceFt <= 0)
-        {
-            return null;
-        }
-
-        var step = distanceFt / lengthFt;
-        var forward = Math.Clamp(spot.Normalized + step, 0.0, 1.0);
-        var backward = Math.Clamp(spot.Normalized - step, 0.0, 1.0);
-
-        var forwardPoint = curve.Evaluate(forward, true);
-        var backwardPoint = curve.Evaluate(backward, true);
-
-        return forwardPoint.DistanceTo(away) >= backwardPoint.DistanceTo(away)
-            ? new HangerSpot(forward, forwardPoint)
-            : new HangerSpot(backward, backwardPoint);
-    }
-
-    /// <summary>Slides a hanger this sync placed. False if it would not go.</summary>
-    private static bool Move(Document document, Standing standing, HangerSpot target)
-    {
-        // A hanger that predates the sync is not ours to move; MakeRoom bails
-        // out before reaching here, and this says so rather than relying on it.
-        if (standing.Preexisting || standing.Id is not { } id)
-        {
-            return false;
-        }
-
-        try
-        {
-            return document.GetElement(id)?.Location is { } location
-                   && location.Move(target.Point - standing.Spot.Point);
-        }
-        catch (Autodesk.Revit.Exceptions.ApplicationException)
-        {
-            // Pinned, or constrained to something. The other one takes the
-            // whole shift instead.
-            return false;
-        }
     }
 }
 
@@ -285,7 +193,7 @@ internal static class HangerPlacer
         if (CableTrayScanner.GetCurve(cableTray) is not { } curve)
         {
             return new PlacementOutcome(
-                0,
+                [],
                 [$"Cable tray {cableTray.Id} has no location curve to place along."],
                 null);
         }
@@ -302,7 +210,7 @@ internal static class HangerPlacer
             ?? (cableTray as MEPCurve)?.ReferenceLevel;
 
         var lengthFt = curve.Length;
-        var placed = 0;
+        var placed = new List<FamilyInstance>();
         var failures = new List<string>();
 
         // Recorded once per tray, not once per hanger: a parameter that lands
@@ -318,13 +226,15 @@ internal static class HangerPlacer
             var normalized = lengthFt <= 0 ? 0 : Math.Clamp(offsetFt / lengthFt, 0.0, 1.0);
             var wanted = new HangerSpot(normalized, curve.Evaluate(normalized, true));
 
-            // Where the joint is shared with another run, this comes back
-            // shifted along the tray — and the hanger on the other side has
-            // already stepped back the other way. Not a failure either way.
-            if (placedHangers.MakeRoom(document, curve, tray.TrayWidthMm, wanted) is not { } spot)
+            // A hanger already close enough to be doing this one's job — at a
+            // shared joint, or standing here before the sync began. Not a
+            // failure: the place is supported either way.
+            if (!placedHangers.Accepts(tray.TrayWidthMm, wanted))
             {
                 continue;
             }
+
+            var spot = wanted;
 
             try
             {
@@ -338,9 +248,9 @@ internal static class HangerPlacer
                     continue;
                 }
 
-                placedHangers.Claim(instance.Id, curve, tray.TrayWidthMm, spot);
+                placedHangers.Claim(tray.TrayWidthMm, spot);
 
-                var firstOnThisTray = placed == 0;
+                var firstOnThisTray = placed.Count == 0;
 
                 // Every hanger is sized, and only the first complaint is kept.
                 // Writing this as `dimensionProblem ??= ApplyDimensions(...)`
@@ -351,7 +261,7 @@ internal static class HangerPlacer
                 dimensionProblem ??= problem;
 
                 AlignToRun(instance, curve, spot, settings);
-                placed++;
+                placed.Add(instance);
 
                 if (firstOnThisTray && verifyGeometry)
                 {

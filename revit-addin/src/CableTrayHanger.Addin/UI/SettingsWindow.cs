@@ -32,11 +32,26 @@ internal sealed class SettingsWindow : Window
     private readonly TextBox _widthParameter = new();
     private readonly TextBox _heightParameter = new();
     private readonly TextBox _rotation = new();
+    private readonly CheckBox _createDimensions = new() { Content = "Dimension each run of hangers in the active view" };
+
+    // Editable, so a style saved on a machine with no model open — or one this
+    // model has not loaded — survives being looked at rather than silently
+    // becoming whatever happened to be first in the list.
+    private readonly ComboBox _dimensionStyle = new() { IsEditable = true };
     private readonly TextBlock _status = new() { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 4, 0, 0) };
     private readonly Button _testButton = new() { Content = "Test connection", Padding = new Thickness(12, 4, 12, 4) };
     private readonly Button _saveButton = new() { Content = "Save", Padding = new Thickness(20, 4, 20, 4), IsDefault = true };
 
-    public SettingsWindow(AddinSettings settings)
+    /// <summary>
+    /// `document` is only used to list the model's linear dimension styles.
+    /// Null when no project is open, which leaves the dropdown a plain text box
+    /// holding whatever was saved — the setting is per Windows user, so it has
+    /// to be editable without a model in front of it.
+    /// </summary>
+    // Autodesk.Revit.DB is spelled out rather than imported: this file uses
+    // System.Windows.Controls.Grid, and RevitAPI publishes an Autodesk.Revit.DB.Grid
+    // that would make every `new Grid()` below ambiguous.
+    public SettingsWindow(AddinSettings settings, Autodesk.Revit.DB.Document? document)
     {
         _settings = settings;
 
@@ -55,6 +70,14 @@ internal sealed class SettingsWindow : Window
         _widthParameter.Text = settings.TrayWidthParameter;
         _heightParameter.Text = settings.HangerHeightParameter;
         _rotation.Text = settings.HangerRotationDegrees.ToString(CultureInfo.CurrentCulture);
+        _createDimensions.IsChecked = settings.CreateDimensions;
+
+        if (document is not null)
+        {
+            _dimensionStyle.ItemsSource = HangerDimensioner.LinearStyleNames(document);
+        }
+
+        _dimensionStyle.Text = settings.DimensionTypeName;
 
         // Keep the two key editors in step so either can be the source of truth.
         _apiKeyMasked.PasswordChanged += (_, _) =>
@@ -147,6 +170,18 @@ internal sealed class SettingsWindow : Window
             "Turn applied after aligning the hanger with the run. A family drawn across the tray "
             + "needs 90 where one drawn along it needs 0. If the hangers face the wrong way, "
             + "change this."));
+
+        _createDimensions.Margin = new Thickness(0, 4, 0, 0);
+        root.Children.Add(_createDimensions);
+
+        root.Children.Add(Labelled(
+            "Linear dimension style",
+            _dimensionStyle,
+            document is null
+                ? "Open a project to pick from the styles it has loaded. Typed by hand for now."
+                : "The style the run dimensions are drawn in, e.g. \"Linear - 3mm Arial\". "
+                  + "Dimensions are view-specific and go in whichever view is active when you "
+                  + "press Sync; a 3D view has to be locked first."));
 
         var buttons = new DockPanel { Margin = new Thickness(0, 8, 0, 0) };
         DockPanel.SetDock(_testButton, Dock.Left);
@@ -290,6 +325,8 @@ internal sealed class SettingsWindow : Window
         }
 
         _settings.HangerRotationDegrees = degrees;
+        _settings.CreateDimensions = _createDimensions.IsChecked == true;
+        _settings.DimensionTypeName = _dimensionStyle.Text?.Trim() ?? "";
 
         try
         {
